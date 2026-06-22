@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>תוכנית שנתית תשפ"ז — ישיבת אלוני הבשן</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Heebo', 'Arial', sans-serif; direction: rtl; background: #f4f6f9; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback, useMemo } = React;
+
+
+// ─── DATA ───────────────────────────────────────────────────────────────────
+
+const CATEGORIES = {
+  chag:    { label: "חג / צום",       color: "#e74c3c", bg: "#fdecea" },
+  social:  { label: "פעילות חברתית",  color: "#8e44ad", bg: "#f3e5f5" },
+  trip:    { label: "טיול / סיור",    color: "#27ae60", bg: "#e8f5e9" },
+  parents: { label: "הורים / תעודות", color: "#2980b9", bg: "#e3f2fd" },
+  staff:   { label: "צוות / מנהלים", color: "#d35400", bg: "#fff3e0" },
+  sports:  { label: "ספורט",         color: "#16a085", bg: "#e0f2f1" },
+  vol:     { label: "התנדבות",        color: "#7f8c8d", bg: "#f5f5f5" },
+  bg:      { label: "בגרויות",        color: "#6c3483", bg: "#f3e5f5" },
+  ruach:   { label: "רוח הגולן",      color: "#1a6b3a", bg: "#e8f5e9" },
+  gen:     { label: "כללי",           color: "#34495e", bg: "#ecf0f1" },
+};
+
+const MONTH_COLORS = {
+  "09-2026": "#2c3e50", "10-2026": "#1a5276", "11-2026": "#1b4f72",
+  "12-2026": "#1a3a4a", "01-2027": "#154360", "02-2027": "#4a235a",
+  "03-2027": "#1d3a22", "04-2027": "#7b241c", "05-2027": "#1e6b40",
+  "06-2027": "#1a5276",
+};
+
+const HEB_MONTHS = {
+  7:"תשרי",8:"חשון",9:"כסלו",10:"טבת",11:"שבט",
+  12:"אדר א׳",13:"אדר ב׳",1:"ניסן",2:"אייר",3:"סיון",
+  4:"תמוז",5:"אב",6:"אלול"
+};
+
+const HEB_NUMS = ["","א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ז׳","ח׳","ט׳","י׳",
+  "י״א","י״ב","י״ג","י״ד","ט״ו","ט״ז","י״ז","י״ח","י״ט","כ׳",
+  "כ״א","כ״ב","כ״ג","כ״ד","כ״ה","כ״ו","כ״ז","כ״ח","כ״ט","ל׳"];
+
+const MONTH_NAMES_GRE = {
+  "09-2026":"ספטמבר 2026","10-2026":"אוקטובר 2026","11-2026":"נובמבר 2026",
+  "12-2026":"דצמבר 2026","01-2027":"ינואר 2027","02-2027":"פברואר 2027",
+  "03-2027":"מרץ 2027","04-2027":"אפריל 2027","05-2027":"מאי 2027",
+  "06-2027":"יוני 2027",
+};
+
+// Hebrew calendar dates for 5787 (pre-computed anchor: Sep 12 2026 = 1 Tishri 5787)
+// We'll compute on-the-fly with a JS implementation
+function jewishDate(year, month, day) {
+  // Zeller/Meeus algorithm simplified - using lookup table for 5787
+  // Anchor: 1 Tishri 5787 = Sep 12 2026 = JD 2461301
+  const JD_ANCHOR = 2461301; // Sep 12 2026
+  const TISHRI1_5787 = JD_ANCHOR;
+
+  // Month lengths for 5787 (שנה מעוברת שלמה = 385 days)
+  const MONTH_LENGTHS_5787 = [0,30,29,29,30,29,30,30,29,30,29,30,29,29];
+  // months: 1=Nisan..6=Elul, 7=Tishri..13=AdarII (leap)
+
+  function jdFromGreg(y, m, d) {
+    if (m <= 2) { y -= 1; m += 12; }
+    const A = Math.floor(y/100);
+    const B = 2 - A + Math.floor(A/4);
+    return Math.floor(365.25*(y+4716)) + Math.floor(30.6001*(m+1)) + d + B - 1524;
+  }
+
+  const jd = jdFromGreg(year, month, day);
+  const daysSinceTishri = jd - TISHRI1_5787;
+
+  if (daysSinceTishri < 0 || daysSinceTishri >= 385) {
+    // Outside 5787 - approximate for Elul 5786
+    const TISHRI1_5786 = 2460915; // Sep 22 2025
+    const d2 = jd - TISHRI1_5786;
+    let m2 = 7, rem = d2;
+    const ml5786 = [0,30,29,30,29,30,30,29,30,29,30,29,29]; // approx
+    for (let i = 7; i <= 13; i++) {
+      const idx = i <= 13 ? i : i-12;
+      const ml = ml5786[idx] || 29;
+      if (rem < ml) return { y: 5786, m: i, d: rem+1, mn: HEB_MONTHS[i] || "" };
+      rem -= ml;
+    }
+    return { y: 5786, m: 6, d: rem+1, mn: "אלול" };
+  }
+
+  // Walk through 5787 months starting from Tishri (month 7)
+  const ORDER = [7,8,9,10,11,12,13,1,2,3,4,5,6];
+  let rem = daysSinceTishri;
+  for (const mn of ORDER) {
+    const len = MONTH_LENGTHS_5787[mn];
+    if (rem < len) return { y: 5787, m: mn, d: rem+1, mn: HEB_MONTHS[mn] };
+    rem -= len;
+  }
+  return { y: 5787, m: 6, d: rem+1, mn: "אלול" };
+}
+
+// Pre-built events list
+const INITIAL_EVENTS = [
+  // SEPTEMBER 2026
+  {id:"e001",date:"2026-09-01",title:"פתיחת שנה + שיחות אישיות",cat:"gen",target:"כלל",note:""},
+  {id:"e002",date:"2026-09-02",title:"הגעת תלמידי י׳–י״ב",cat:"gen",target:"י׳–י״ב",note:""},
+  {id:"e003",date:"2026-09-03",title:"טיול פתיחה לט׳",cat:"trip",target:"ט׳",note:""},
+  {id:"e004",date:"2026-09-08",title:"ג׳לי בול (ערב)",cat:"social",target:"כלל",note:"פעילות ערב"},
+  {id:"e005",date:"2026-09-12",title:"ראש השנה",cat:"chag",target:"",note:""},
+  {id:"e006",date:"2026-09-13",title:"ב׳ ראש השנה",cat:"chag",target:"",note:""},
+  {id:"e007",date:"2026-09-14",title:"צום גדליה",cat:"chag",target:"",note:""},
+  {id:"e008",date:"2026-09-15",title:"בדיקות ספורט",cat:"sports",target:"כלל",note:""},
+  {id:"e009",date:"2026-09-19",title:"הרמת כוסית — יציאה 11:00",cat:"social",target:"כלל",note:"השכמה מאוחרת"},
+  {id:"e010",date:"2026-09-20",title:"ערב יום כיפור / ערב הורים זום",cat:"chag",target:"י׳,יא׳",note:"רשות — בחספין"},
+  {id:"e011",date:"2026-09-21",title:"יום כיפור",cat:"chag",target:"",note:""},
+  {id:"e012",date:"2026-09-22",title:"סיור סליחות בצפת (ערב)",cat:"social",target:"כלל",note:"אירוע לילה — לתאם הסעות"},
+  {id:"e013",date:"2026-09-25",title:"ערב סוכות",cat:"chag",target:"",note:""},
+  {id:"e014",date:"2026-09-26",title:"א׳ סוכות",cat:"chag",target:"",note:""},
+  {id:"e015",date:"2026-09-27",title:"שבת ישיבה",cat:"social",target:"כלל",note:""},
+  {id:"e016",date:"2026-09-29",title:"לייזר טאג (ערב)",cat:"social",target:"כלל",note:""},
+  // OCTOBER 2026
+  {id:"e017",date:"2026-10-02",title:"הושענא רבה",cat:"chag",target:"",note:""},
+  {id:"e018",date:"2026-10-03",title:"שמחת תורה",cat:"chag",target:"",note:""},
+  {id:"e019",date:"2026-10-07",title:"יום זיכרון 7/10",cat:"chag",target:"כלל",note:"טקס ישיבתי — לתכנן תוכן"},
+  {id:"e020",date:"2026-10-14",title:"לכידות צוותית",cat:"staff",target:"צוות",note:"🔄 חוזר"},
+  {id:"e021",date:"2026-10-15",title:"טיול",cat:"trip",target:"כלל",note:""},
+  {id:"e022",date:"2026-10-21",title:"שיחה יא׳ — צו ראשון",cat:"gen",target:"יא׳",note:"11:30"},
+  {id:"e023",date:"2026-10-27",title:"ערב הורים יב׳ (זום)",cat:"parents",target:"יב׳",note:""},
+  {id:"e024",date:"2026-10-29",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  // NOVEMBER 2026
+  {id:"e025",date:"2026-11-03",title:"מסע מנהלים — רוח הגולן",cat:"ruach",target:"מנהלים",note:"יומיים"},
+  {id:"e026",date:"2026-11-04",title:"סיור עתלית יא׳",cat:"trip",target:"יא׳",note:""},
+  {id:"e027",date:"2026-11-12",title:"התנדבות י׳-יא׳",cat:"vol",target:"י׳–יא׳",note:""},
+  {id:"e028",date:"2026-11-16",title:"פסיפס יב׳",cat:"bg",target:"יב׳",note:"13:30"},
+  {id:"e029",date:"2026-11-19",title:"צו אחוד יא׳ / לכידות צוותית",cat:"gen",target:"יא׳ / צוות",note:""},
+  {id:"e030",date:"2026-11-25",title:"ערב הורים יב׳ (זום)",cat:"parents",target:"יב׳",note:""},
+  {id:"e031",date:"2026-11-26",title:"הגשת יצירה ספרות יב׳",cat:"bg",target:"יב׳",note:""},
+  {id:"e032",date:"2026-11-28",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  {id:"e033",date:"2026-11-30",title:"יום רוח הגולן",cat:"ruach",target:"כלל",note:"🔄"},
+  // DECEMBER 2026
+  {id:"e034",date:"2026-12-01",title:"יום הורים תג״ן",cat:"parents",target:"ט׳",note:"10:30–14:30"},
+  {id:"e035",date:"2026-12-03",title:"אמנות באגמון + התנדבות צמיד",cat:"vol",target:"כלל",note:""},
+  {id:"e036",date:"2026-12-04",title:"נר ראשון — חנוכה",cat:"chag",target:"",note:""},
+  {id:"e037",date:"2026-12-05",title:"חנוכה",cat:"chag",target:"",note:""},
+  {id:"e038",date:"2026-12-06",title:"חנוכה",cat:"chag",target:"",note:""},
+  {id:"e039",date:"2026-12-07",title:"מסיבת חנוכה (20:15)",cat:"social",target:"כלל",note:"ערב"},
+  {id:"e040",date:"2026-12-08",title:"חנוכה",cat:"chag",target:"",note:""},
+  {id:"e041",date:"2026-12-09",title:"חנוכה / סדנה מנהלים",cat:"chag",target:"",note:""},
+  {id:"e042",date:"2026-12-10",title:"חנוכה",cat:"chag",target:"",note:""},
+  {id:"e043",date:"2026-12-11",title:"יום רוח הגולן יב׳ / נר שמיני",cat:"ruach",target:"יב׳",note:""},
+  {id:"e044",date:"2026-12-14",title:"קורס עזרה ראשונה י׳",cat:"gen",target:"י׳",note:"9–13:00"},
+  {id:"e045",date:"2026-12-16",title:"ישיבות פדגוגיות יא׳",cat:"staff",target:"יא׳",note:"11:30"},
+  {id:"e046",date:"2026-12-17",title:"יום מדעים ט׳-י׳",cat:"gen",target:"ט׳–י׳",note:"9–13:00"},
+  {id:"e047",date:"2026-12-23",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  {id:"e048",date:"2026-12-28",title:"עשרה בטבת",cat:"chag",target:"",note:"לסגור מרצה מוקדם!"},
+  // JANUARY 2027
+  {id:"e049",date:"2027-01-06",title:"יום הורים יא׳-יב׳",cat:"parents",target:"יא׳–יב׳",note:""},
+  {id:"e050",date:"2027-01-12",title:"יום למידה — רוח הגולן",cat:"ruach",target:"כלל",note:"🔄"},
+  {id:"e051",date:"2027-01-13",title:"סדנת מיניות בריאה / התנדבות",cat:"gen",target:"ט׳-יא׳ / י׳",note:""},
+  {id:"e052",date:"2027-01-18",title:"חשיפה להצגה יב׳",cat:"social",target:"יב׳",note:"10:50"},
+  {id:"e053",date:"2027-01-19",title:"יום קליטה",cat:"gen",target:"כלל",note:"🔄"},
+  {id:"e054",date:"2027-01-20",title:"יום מדעים ט׳-י׳",cat:"gen",target:"ט׳–י׳",note:"10–14:00"},
+  {id:"e055",date:"2027-01-26",title:"יום הורים ט׳-י׳",cat:"parents",target:"ט׳–י׳",note:""},
+  {id:"e056",date:"2027-01-27",title:"ערב הוקרה מחנכים (רוח הגולן)",cat:"ruach",target:"מחנכים",note:""},
+  {id:"e057",date:"2027-01-28",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  // FEBRUARY 2027
+  {id:"e058",date:"2027-02-03",title:"ט״ו בשבט",cat:"chag",target:"",note:"פעילות לחג"},
+  {id:"e059",date:"2027-02-04",title:"יום מחצית — חגורות + תעודות",cat:"gen",target:"כלל",note:"⚠ לתכנן גיבוי מקורה!"},
+  {id:"e060",date:"2027-02-05",title:"כנס מצטיינים + יציאה מוקדמת",cat:"social",target:"מצטיינים",note:""},
+  {id:"e061",date:"2027-02-09",title:"ימי השראה מנהלים (יומיים)",cat:"staff",target:"מנהלים",note:""},
+  {id:"e062",date:"2027-02-10",title:"יום צוות / שיעור הרב ארז",cat:"staff",target:"צוות / יב׳",note:""},
+  {id:"e063",date:"2027-02-11",title:"יום קליטה / סדנת כלכלה יב׳",cat:"gen",target:"כלל / יב׳",note:"🔄"},
+  {id:"e064",date:"2027-02-15",title:"טיול ישיבתי",cat:"trip",target:"כלל",note:""},
+  {id:"e065",date:"2027-02-16",title:"מסע יא׳",cat:"trip",target:"יא׳",note:""},
+  {id:"e066",date:"2027-02-16",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  {id:"e067",date:"2027-02-21",title:"אליפות הישיבה",cat:"sports",target:"כלל",note:""},
+  {id:"e068",date:"2027-02-22",title:"לכידות צוותית / סדנת אש י׳",cat:"social",target:"צוות / י׳",note:""},
+  {id:"e069",date:"2027-02-27",title:"שבת ישיבה — שבת זכור",cat:"social",target:"כלל",note:""},
+  // MARCH 2027
+  {id:"e070",date:"2027-03-01",title:"תענית אסתר",cat:"chag",target:"",note:""},
+  {id:"e071",date:"2027-03-02",title:"פורים",cat:"chag",target:"",note:""},
+  {id:"e072",date:"2027-03-03",title:"שושן פורים",cat:"chag",target:"",note:""},
+  {id:"e073",date:"2027-03-04",title:"התנדבות ישיבתית / יציאה הביתה",cat:"vol",target:"כלל",note:""},
+  {id:"e074",date:"2027-03-09",title:"ריטריט צוות ניהולי — חספין",cat:"staff",target:"ניהולי",note:"⚠ לשריין ארוחה"},
+  {id:"e075",date:"2027-03-10",title:"טיול שנתי",cat:"trip",target:"כלל",note:""},
+  {id:"e076",date:"2027-03-16",title:"יום ספורט — רוח הגולן",cat:"ruach",target:"כלל",note:"🔄"},
+  {id:"e077",date:"2027-03-21",title:"שבת כיתה ט׳",cat:"social",target:"ט׳",note:""},
+  {id:"e078",date:"2027-03-22",title:"סדנה למנהלים",cat:"staff",target:"מנהלים",note:"🔄 14:30"},
+  {id:"e079",date:"2027-03-24",title:"ישיבות פדגוגיות יא׳",cat:"staff",target:"יא׳",note:""},
+  {id:"e080",date:"2027-03-28",title:"סיורי מגמות י׳-יב׳",cat:"trip",target:"י׳–יב׳",note:""},
+  {id:"e081",date:"2027-03-30",title:"ערב פסח",cat:"chag",target:"",note:"⚠ סגור הכל לפני תאריך זה!"},
+  // APRIL 2027
+  {id:"e082",date:"2027-04-01",title:"א׳ פסח",cat:"chag",target:"",note:""},
+  {id:"e083",date:"2027-04-07",title:"ז׳ פסח",cat:"chag",target:"",note:""},
+  {id:"e084",date:"2027-04-08",title:"אחרון של פסח",cat:"chag",target:"",note:""},
+  {id:"e085",date:"2027-04-15",title:"התנדבות + ראיונות י׳",cat:"vol",target:"י׳",note:""},
+  {id:"e086",date:"2027-04-16",title:"יום קליטה",cat:"gen",target:"כלל",note:"🔄"},
+  {id:"e087",date:"2027-04-20",title:"יום השואה",cat:"chag",target:"כלל",note:"טקס"},
+  {id:"e088",date:"2027-04-22",title:"יום מדעים ט׳-י׳",cat:"gen",target:"ט׳–י׳",note:"10–14:00"},
+  {id:"e089",date:"2027-04-24",title:"שבת ישיבה",cat:"social",target:"כלל",note:""},
+  {id:"e090",date:"2027-04-27",title:"יום הזיכרון",cat:"chag",target:"כלל",note:"⚠ לסגור מרצה 3 חודשים מראש!"},
+  {id:"e091",date:"2027-04-28",title:"יום העצמאות",cat:"chag",target:"כלל",note:"⚠ לסגור מרצה מוקדם!"},
+  {id:"e092",date:"2027-04-29",title:"יום מרוכז — מגמת חילוץ",cat:"trip",target:"חילוץ",note:""},
+  // MAY 2027
+  {id:"e093",date:"2027-05-04",title:"ל״ג בעומר",cat:"chag",target:"",note:""},
+  {id:"e094",date:"2027-05-05",title:"סדנת גששות י׳",cat:"social",target:"י׳",note:""},
+  {id:"e095",date:"2027-05-12",title:"יום קליטה",cat:"gen",target:"כלל",note:"🔄"},
+  {id:"e096",date:"2027-05-20",title:"טיול ט׳ — סיום שביל גולן",cat:"trip",target:"ט׳",note:""},
+  {id:"e097",date:"2027-05-24",title:"יום ירושלים",cat:"chag",target:"כלל",note:""},
+  {id:"e098",date:"2027-05-26",title:"למידת עמיתים — רוח הגולן",cat:"ruach",target:"צוות",note:"🔄"},
+  {id:"e099",date:"2027-05-27",title:"יום מדעים + ניוטונים יא׳-יב׳",cat:"gen",target:"יא׳–יב׳",note:""},
+  // JUNE 2027
+  {id:"e100",date:"2027-06-02",title:"שיחת גיוס יא׳ / יום רוח הגולן י׳",cat:"ruach",target:"יא׳ / י׳",note:""},
+  {id:"e101",date:"2027-06-03",title:"מסע תיירות יא׳ / מסע יב׳",cat:"trip",target:"יא׳, יב׳",note:""},
+  {id:"e102",date:"2027-06-09",title:"הגשת ציונים / טיול אופניים חנ״ג",cat:"staff",target:"צוות / יא׳",note:""},
+  {id:"e103",date:"2027-06-11",title:"שבועות",cat:"chag",target:"",note:""},
+  {id:"e104",date:"2027-06-14",title:"ועדה מלווה",cat:"staff",target:"",note:"9:00"},
+  {id:"e105",date:"2027-06-15",title:"יום צוות / אליפות נוער דרג ב׳",cat:"staff",target:"צוות / ספורט",note:""},
+  {id:"e106",date:"2027-06-16",title:"הכנה לקיץ / ערב כיתה יא׳",cat:"gen",target:"כלל / יא׳",note:""},
+  {id:"e107",date:"2027-06-17",title:"תעודות וסיום שנה",cat:"parents",target:"כלל",note:""},
+  {id:"e108",date:"2027-06-18",title:"מסיבת סיום יב׳ — יום כיף",cat:"social",target:"יב׳",note:""},
+];
+
+const MONTHS_ORDER = [
+  "09-2026","10-2026","11-2026","12-2026",
+  "01-2027","02-2027","03-2027","04-2027","05-2027","06-2027",
+];
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+function getMonthKey(dateStr) {
+  const [y,,m] = dateStr.split("-");
+  // dateStr is YYYY-MM-DD
+  const parts = dateStr.split("-");
+  return `${parts[1]}-${parts[0]}`;
+}
+
+function getDaysInMonth(y, m) {
+  return new Date(y, m, 0).getDate();
+}
+
+function getFirstWeekday(y, m) {
+  // Returns 0=Sun,1=Mon,...,6=Sat
+  const d = new Date(y, m - 1, 1);
+  return d.getDay();
+}
+
+function padTwo(n) { return String(n).padStart(2,"0"); }
+
+function formatDateKey(y, m, d) {
+  return `${y}-${padTwo(m)}-${padTwo(d)}`;
+}
+
+function parseMonthKey(mk) {
+  const [m, y] = mk.split("-");
+  return { y: parseInt(y), m: parseInt(m) };
+}
+
+function generateUniqueId() {
+  return "u" + Date.now() + Math.random().toString(36).slice(2, 7);
+}
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+
+async function loadEvents() {
+  try {
+    const raw = localStorage.getItem("events_tashpaz");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+async function saveEvents(events) {
+  try {
+    localStorage.setItem("events_tashpaz", JSON.stringify(events));
+  } catch {}
+}
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+function Tag({ cat, small }) {
+  const c = CATEGORIES[cat];
+  if (!c) return null;
+  return (
+    <span style={{
+      display:"inline-block", padding: small ? "1px 6px" : "2px 8px",
+      borderRadius: 12, background: c.color, color:"#fff",
+      fontSize: small ? 10 : 11, fontWeight: 600, whiteSpace:"nowrap",
+      lineHeight: 1.4,
+    }}>{c.label}</span>
+  );
+}
+
+function EventDot({ cat }) {
+  const c = CATEGORIES[cat];
+  return (
+    <div style={{
+      width: 7, height: 7, borderRadius:"50%",
+      background: c?.color || "#999", flexShrink: 0, marginTop: 2,
+    }} />
+  );
+}
+
+function Modal({ children, onClose }) {
+  return (
+    <div style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.5)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      zIndex:1000, padding:16,
+    }} onClick={onClose}>
+      <div style={{
+        background:"#fff", borderRadius:16, padding:28, maxWidth:480,
+        width:"100%", maxHeight:"90vh", overflowY:"auto",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.25)",
+      }} onClick={e=>e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function EventForm({ initial, onSave, onCancel, onDelete }) {
+  const [form, setForm] = useState(initial || {
+    title:"", date:"", cat:"gen", target:"", note:""
+  });
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const valid = form.title.trim() && form.date;
+
+  return (
+    <div style={{direction:"rtl", fontFamily:"inherit"}}>
+      <div style={{fontWeight:700, fontSize:16, marginBottom:16, color:"#1a1a2e"}}>
+        {initial ? "עריכת אירוע" : "הוספת אירוע חדש"}
+      </div>
+
+      {["title","date","target","note"].map(k => (
+        <div key={k} style={{marginBottom:12}}>
+          <label style={{display:"block", fontSize:12, fontWeight:600, color:"#555", marginBottom:4}}>
+            {{ title:"שם האירוע *", date:"תאריך *", target:"קהל יעד", note:"הערה" }[k]}
+          </label>
+          <input
+            type={k==="date" ? "date" : "text"}
+            value={form[k]}
+            onChange={e=>set(k,e.target.value)}
+            min={k==="date" ? "2026-09-01" : undefined}
+            max={k==="date" ? "2027-06-30" : undefined}
+            style={{
+              width:"100%", padding:"8px 10px", border:"1.5px solid #ddd",
+              borderRadius:8, fontSize:13, direction: k==="date" ? "ltr" : "rtl",
+              outline:"none", boxSizing:"border-box",
+            }}
+          />
+        </div>
+      ))}
+
+      <div style={{marginBottom:16}}>
+        <label style={{display:"block", fontSize:12, fontWeight:600, color:"#555", marginBottom:4}}>קטגוריה</label>
+        <select value={form.cat} onChange={e=>set("cat",e.target.value)}
+          style={{width:"100%", padding:"8px 10px", border:"1.5px solid #ddd", borderRadius:8, fontSize:13, direction:"rtl"}}>
+          {Object.entries(CATEGORIES).map(([k,v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{display:"flex", gap:8, justifyContent:"flex-end", marginTop:8, flexWrap:"wrap"}}>
+        {initial && onDelete && (
+          <button onClick={()=>onDelete(initial.id)}
+            style={{padding:"8px 16px", borderRadius:8, border:"none",
+              background:"#fdecea", color:"#c0392b", fontWeight:600, cursor:"pointer", fontSize:13}}>
+            מחק
+          </button>
+        )}
+        <button onClick={onCancel}
+          style={{padding:"8px 16px", borderRadius:8, border:"1.5px solid #ddd",
+            background:"#fff", color:"#555", fontWeight:600, cursor:"pointer", fontSize:13}}>
+          ביטול
+        </button>
+        <button onClick={()=>valid && onSave(form)} disabled={!valid}
+          style={{padding:"8px 20px", borderRadius:8, border:"none",
+            background: valid ? "#2c3e50" : "#ccc", color:"#fff",
+            fontWeight:700, cursor: valid ? "pointer":"default", fontSize:13}}>
+          שמור
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── CALENDAR MONTH VIEW ─────────────────────────────────────────────────────
+
+function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
+  const { y, m } = parseMonthKey(mk);
+  const totalDays = getDaysInMonth(y, m);
+  const firstWd = getFirstWeekday(y, m); // 0=Sun
+  const color = MONTH_HEADER_COLORS_JS[mk] || "#2c3e50";
+  const monthName = MONTH_NAMES_GRE[mk] || mk;
+
+  // Build grid cells
+  const cells = [];
+  for (let i = 0; i < firstWd; i++) cells.push(null);
+  for (let d = 1; d <= totalDays; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  // Index events by day
+  const byDay = {};
+  events.forEach(ev => {
+    const parts = ev.date.split("-");
+    const emk = `${parts[1]}-${parts[0]}`;
+    if (emk !== mk) return;
+    const d = parseInt(parts[2]);
+    if (!byDay[d]) byDay[d] = [];
+    byDay[d].push(ev);
+  });
+
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7));
+
+  const headerDays = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
+
+  return (
+    <div style={{
+      borderRadius:12, overflow:"hidden",
+      border:"1px solid #e5e7eb", marginBottom:20,
+      boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
+    }}>
+      {/* Month header */}
+      <div style={{
+        background: color, color:"#fff", padding:"10px 16px",
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+      }}>
+        <span style={{fontSize:15, fontWeight:800}}>{monthName}</span>
+        <span style={{fontSize:11, opacity:0.75}}>
+          {(() => {
+            const heb1 = jewishDate(y, m, 1);
+            const hebLast = jewishDate(y, m, totalDays);
+            if (heb1.mn === hebLast.mn) return `${heb1.mn} תשפ"ז`;
+            return `${heb1.mn} – ${hebLast.mn} תשפ"ז`;
+          })()}
+        </span>
+      </div>
+
+      {/* Day headers */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)", background:"#f8f9fa"}}>
+        {headerDays.map((d,i) => (
+          <div key={i} style={{
+            textAlign:"center", padding:"5px 2px", fontSize:11, fontWeight:700,
+            color: i===6 ? "#c0392b" : i===5 ? "#b7770d" : "#555",
+            borderLeft: i>0 ? "1px solid #e5e7eb" : "none",
+            borderBottom:"2px solid #e5e7eb",
+          }}>{d}</div>
+        ))}
+      </div>
+
+      {/* Weeks */}
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)"}}>
+          {week.map((day, di) => {
+            if (!day) return (
+              <div key={di} style={{
+                minHeight:70, background:"#fafafa",
+                borderLeft: di>0 ? "1px solid #f0f0f0":"none",
+                borderBottom:"1px solid #f0f0f0",
+              }} />
+            );
+            const hd = jewishDate(y, m, day);
+            const evs = (byDay[day] || []).filter(e =>
+              selectedCats.length === 0 || selectedCats.includes(e.cat)
+            );
+            const isSat = di === 6;
+            const isFri = di === 5;
+            return (
+              <div key={di}
+                onClick={() => onDayClick(formatDateKey(y,m,day))}
+                style={{
+                  minHeight:70, padding:"3px 4px", cursor:"pointer",
+                  borderLeft: di>0 ? "1px solid #f0f0f0":"none",
+                  borderBottom:"1px solid #f0f0f0",
+                  background: isSat ? "#fdf5f5" : isFri ? "#fffdf0" : "#fff",
+                  transition:"background 0.15s",
+                }}>
+                {/* Date header */}
+                <div style={{display:"flex", alignItems:"baseline", gap:3, marginBottom:2}}>
+                  <span style={{
+                    fontSize:10, fontWeight:700, color:"#1a1a2e", lineHeight:1,
+                  }}>{HEB_NUMS[hd.d] || hd.d}</span>
+                  {(hd.d === 1) && (
+                    <span style={{fontSize:8, color:"#aaa", fontWeight:400}}>{hd.mn}</span>
+                  )}
+                  <span style={{
+                    fontSize:9, color: isSat?"#c0392b": isFri?"#b7770d":"#bbb",
+                    marginRight:"auto", direction:"ltr",
+                  }}>{day}</span>
+                </div>
+                {/* Events */}
+                <div style={{display:"flex", flexDirection:"column", gap:1}}>
+                  {evs.slice(0,3).map(ev => (
+                    <div key={ev.id}
+                      onClick={e=>{e.stopPropagation(); onEventClick(ev);}}
+                      style={{
+                        display:"flex", alignItems:"flex-start", gap:3,
+                        background: CATEGORIES[ev.cat]?.bg || "#f0f0f0",
+                        borderRadius:4, padding:"1px 4px",
+                        cursor:"pointer", border:`1px solid ${CATEGORIES[ev.cat]?.color}22`,
+                      }}>
+                      <div style={{
+                        width:5, height:5, borderRadius:"50%",
+                        background:CATEGORIES[ev.cat]?.color||"#999",
+                        flexShrink:0, marginTop:3,
+                      }}/>
+                      <span style={{fontSize:9, lineHeight:1.4, color:"#222", fontWeight:500}}>
+                        {ev.title}
+                      </span>
+                    </div>
+                  ))}
+                  {evs.length > 3 && (
+                    <span style={{fontSize:8.5, color:"#888", paddingRight:2}}>
+                      +{evs.length-3} עוד...
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const MONTH_HEADER_COLORS_JS = MONTH_COLORS;
+
+// ─── LIST VIEW ───────────────────────────────────────────────────────────────
+
+function EventListItem({ ev, onClick }) {
+  const c = CATEGORIES[ev.cat];
+  const parts = ev.date.split("-");
+  const dateObj = new Date(ev.date);
+  const dayNames = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
+  const dayName = dayNames[dateObj.getDay()];
+  const hd = jewishDate(parseInt(parts[0]), parseInt(parts[1]), parseInt(parts[2]));
+
+  return (
+    <div onClick={()=>onClick(ev)} style={{
+      display:"flex", alignItems:"flex-start", gap:12, padding:"10px 14px",
+      borderBottom:"1px solid #f0f0f0", cursor:"pointer",
+      transition:"background 0.15s",
+    }}
+    onMouseEnter={e=>e.currentTarget.style.background="#f8f9fa"}
+    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <div style={{
+        width:44, textAlign:"center", flexShrink:0,
+        borderRadius:8, background: c?.bg || "#f0f0f0",
+        padding:"4px 0", border:`1px solid ${c?.color}33`,
+      }}>
+        <div style={{fontSize:15, fontWeight:800, color: c?.color || "#333", lineHeight:1}}>
+          {parts[2]}
+        </div>
+        <div style={{fontSize:9, color:"#888"}}>{parts[1]}/{parts[0].slice(2)}</div>
+      </div>
+      <div style={{flex:1, minWidth:0}}>
+        <div style={{display:"flex", alignItems:"center", gap:6, flexWrap:"wrap"}}>
+          <span style={{fontWeight:700, fontSize:13, color:"#1a1a2e"}}>{ev.title}</span>
+          <Tag cat={ev.cat} small />
+        </div>
+        <div style={{fontSize:11, color:"#888", marginTop:2, display:"flex", gap:8, flexWrap:"wrap"}}>
+          <span>יום {dayName} · {HEB_NUMS[hd.d]} {hd.mn}</span>
+          {ev.target && <span>· {ev.target}</span>}
+          {ev.note && <span style={{fontStyle:"italic", color:"#aaa"}}>· {ev.note}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+function App() {
+  const [events, setEvents] = useState(INITIAL_EVENTS);
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("calendar"); // "calendar" | "list"
+  const [selectedCats, setSelectedCats] = useState([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [modal, setModal] = useState(null); // null | {type:"new"|"edit"|"day", ...}
+  const [newEventDate, setNewEventDate] = useState("");
+
+  // Load from storage
+  useEffect(() => {
+    loadEvents().then(stored => {
+      if (stored && stored.length > 0) setEvents(stored);
+      setLoaded(true);
+    });
+  }, []);
+
+  // Save on change
+  useEffect(() => {
+    if (loaded) saveEvents(events);
+  }, [events, loaded]);
+
+  const handleSave = useCallback((form) => {
+    if (modal?.type === "edit" && modal.event) {
+      setEvents(prev => prev.map(e => e.id === modal.event.id ? {...e,...form} : e));
+    } else {
+      setEvents(prev => [...prev, {...form, id: generateUniqueId()}]);
+    }
+    setModal(null);
+  }, [modal]);
+
+  const handleDelete = useCallback((id) => {
+    setEvents(prev => prev.filter(e => e.id !== id));
+    setModal(null);
+  }, []);
+
+  const toggleCat = (cat) => {
+    setSelectedCats(prev =>
+      prev.includes(cat) ? prev.filter(c=>c!==cat) : [...prev, cat]
+    );
+  };
+
+  // Filtered events
+  const filtered = useMemo(() => {
+    return events.filter(ev => {
+      if (selectedCats.length > 0 && !selectedCats.includes(ev.cat)) return false;
+      if (searchQ) {
+        const q = searchQ.toLowerCase();
+        if (!ev.title.toLowerCase().includes(q) &&
+            !ev.target.toLowerCase().includes(q) &&
+            !(ev.note||"").toLowerCase().includes(q)) return false;
+      }
+      if (selectedMonth !== "all") {
+        const parts = ev.date.split("-");
+        if (`${parts[1]}-${parts[0]}` !== selectedMonth) return false;
+      }
+      return true;
+    }).sort((a,b) => a.date.localeCompare(b.date));
+  }, [events, selectedCats, searchQ, selectedMonth]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const total = events.length;
+    const perCat = {};
+    events.forEach(e => { perCat[e.cat] = (perCat[e.cat]||0)+1; });
+    return { total, perCat };
+  }, [events]);
+
+  const monthsToShow = selectedMonth === "all" ? MONTHS_ORDER : [selectedMonth];
+
+  return (
+    <div style={{
+      fontFamily: '"Heebo", "Noto Sans Hebrew", Arial, sans-serif',
+      direction:"rtl", minHeight:"100vh", background:"#f4f6f9",
+      color:"#1a1a2e",
+    }}>
+      {/* ── HEADER ── */}
+      <div style={{
+        background:"linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%)",
+        color:"#fff", padding:"20px 24px 16px",
+        boxShadow:"0 4px 20px rgba(0,0,0,0.2)",
+      }}>
+        <div style={{maxWidth:1100, margin:"0 auto"}}>
+          <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10}}>
+            <div>
+              <div style={{fontSize:22, fontWeight:800, letterSpacing:0.5}}>
+                📅 תוכנית שנתית תשפ"ז
+              </div>
+              <div style={{fontSize:12, opacity:0.7, marginTop:2}}>
+                ישיבת אלוני הבשן · {stats.total} אירועים
+              </div>
+            </div>
+            <button
+              onClick={() => { setNewEventDate(""); setModal({type:"new"}); }}
+              style={{
+                background:"rgba(255,255,255,0.15)", border:"1.5px solid rgba(255,255,255,0.3)",
+                color:"#fff", padding:"8px 18px", borderRadius:20, cursor:"pointer",
+                fontWeight:700, fontSize:13, fontFamily:"inherit",
+                display:"flex", alignItems:"center", gap:6,
+              }}>
+              ＋ אירוע חדש
+            </button>
+          </div>
+
+          {/* Stats bar */}
+          <div style={{display:"flex", gap:8, marginTop:14, flexWrap:"wrap"}}>
+            {Object.entries(stats.perCat).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([cat,n]) => (
+              <div key={cat} style={{
+                background:"rgba(255,255,255,0.1)", borderRadius:20,
+                padding:"3px 10px", fontSize:11, display:"flex", gap:5, alignItems:"center",
+              }}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:CATEGORIES[cat]?.color}}/>
+                <span style={{opacity:0.85}}>{CATEGORIES[cat]?.label}</span>
+                <span style={{fontWeight:700}}>{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1100, margin:"0 auto", padding:"16px 16px"}}>
+
+        {/* ── CONTROLS ── */}
+        <div style={{
+          background:"#fff", borderRadius:12, padding:"14px 16px",
+          marginBottom:16, boxShadow:"0 1px 4px rgba(0,0,0,0.07)",
+          display:"flex", flexDirection:"column", gap:12,
+        }}>
+          {/* Row 1: search + view toggle + month */}
+          <div style={{display:"flex", gap:10, flexWrap:"wrap", alignItems:"center"}}>
+            <input
+              placeholder="🔍 חיפוש אירוע..."
+              value={searchQ}
+              onChange={e=>setSearchQ(e.target.value)}
+              style={{
+                flex:1, minWidth:160, padding:"7px 12px",
+                border:"1.5px solid #e5e7eb", borderRadius:8,
+                fontSize:13, outline:"none", direction:"rtl", fontFamily:"inherit",
+              }}
+            />
+            <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}
+              style={{
+                padding:"7px 10px", border:"1.5px solid #e5e7eb",
+                borderRadius:8, fontSize:13, direction:"rtl", fontFamily:"inherit",
+                background:"#fff",
+              }}>
+              <option value="all">כל החודשים</option>
+              {MONTHS_ORDER.map(mk => (
+                <option key={mk} value={mk}>{MONTH_NAMES_GRE[mk]}</option>
+              ))}
+            </select>
+            <div style={{display:"flex", gap:0, border:"1.5px solid #e5e7eb", borderRadius:8, overflow:"hidden"}}>
+              {[["calendar","📅 לוח"],["list","📋 רשימה"]].map(([v,l]) => (
+                <button key={v} onClick={()=>setView(v)} style={{
+                  padding:"7px 14px", border:"none", cursor:"pointer",
+                  background: view===v ? "#1a1a2e" : "#fff",
+                  color: view===v ? "#fff" : "#555",
+                  fontSize:12, fontWeight:600, fontFamily:"inherit",
+                }}>{l}</button>
+              ))}
+            </div>
+            {(selectedCats.length > 0 || searchQ || selectedMonth !== "all") && (
+              <button onClick={()=>{setSelectedCats([]); setSearchQ(""); setSelectedMonth("all");}}
+                style={{
+                  padding:"7px 12px", borderRadius:8, border:"1.5px solid #e5e7eb",
+                  background:"#fdecea", color:"#c0392b", fontSize:12, fontWeight:600,
+                  cursor:"pointer", fontFamily:"inherit",
+                }}>✕ נקה סינונים</button>
+            )}
+          </div>
+
+          {/* Row 2: category filters */}
+          <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+            {Object.entries(CATEGORIES).map(([k,v]) => {
+              const active = selectedCats.includes(k);
+              return (
+                <button key={k} onClick={()=>toggleCat(k)} style={{
+                  padding:"4px 10px", borderRadius:20,
+                  border:`1.5px solid ${active ? v.color : "#e5e7eb"}`,
+                  background: active ? v.color : "#fff",
+                  color: active ? "#fff" : "#555",
+                  fontSize:11, fontWeight:600, cursor:"pointer",
+                  fontFamily:"inherit", display:"flex", alignItems:"center", gap:4,
+                  transition:"all 0.15s",
+                }}>
+                  {!active && <span style={{
+                    width:8, height:8, borderRadius:"50%",
+                    background:v.color, display:"inline-block",
+                  }}/>}
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── RESULTS COUNT ── */}
+        {(selectedCats.length > 0 || searchQ || selectedMonth !== "all") && (
+          <div style={{fontSize:12, color:"#888", marginBottom:10, paddingRight:4}}>
+            מציג {filtered.length} מתוך {events.length} אירועים
+          </div>
+        )}
+
+        {/* ── CALENDAR VIEW ── */}
+        {view === "calendar" && (
+          <div>
+            {monthsToShow.map(mk => (
+              <CalendarMonth
+                key={mk}
+                mk={mk}
+                events={filtered}
+                selectedCats={selectedCats}
+                onDayClick={(dateStr) => {
+                  setNewEventDate(dateStr);
+                  setModal({type:"new", date: dateStr});
+                }}
+                onEventClick={(ev) => setModal({type:"edit", event:ev})}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── LIST VIEW ── */}
+        {view === "list" && (
+          <div style={{
+            background:"#fff", borderRadius:12,
+            boxShadow:"0 1px 4px rgba(0,0,0,0.07)", overflow:"hidden",
+          }}>
+            {filtered.length === 0 ? (
+              <div style={{padding:40, textAlign:"center", color:"#aaa"}}>
+                לא נמצאו אירועים
+              </div>
+            ) : (() => {
+              // Group by month
+              const groups = {};
+              filtered.forEach(ev => {
+                const parts = ev.date.split("-");
+                const mk = `${parts[1]}-${parts[0]}`;
+                if (!groups[mk]) groups[mk] = [];
+                groups[mk].push(ev);
+              });
+              return MONTHS_ORDER.filter(mk => groups[mk]).map(mk => (
+                <div key={mk}>
+                  <div style={{
+                    background: MONTH_COLORS[mk] || "#2c3e50",
+                    color:"#fff", padding:"8px 16px",
+                    fontSize:13, fontWeight:700,
+                  }}>{MONTH_NAMES_GRE[mk]}</div>
+                  {groups[mk].map(ev => (
+                    <EventListItem key={ev.id} ev={ev}
+                      onClick={(ev)=>setModal({type:"edit",event:ev})} />
+                  ))}
+                </div>
+              ));
+            })()}
+          </div>
+        )}
+
+      </div>
+
+      {/* ── MODALS ── */}
+      {modal && modal.type === "new" && (
+        <Modal onClose={()=>setModal(null)}>
+          <EventForm
+            initial={{ title:"", date: modal.date||"", cat:"gen", target:"", note:"" }}
+            onSave={handleSave}
+            onCancel={()=>setModal(null)}
+          />
+        </Modal>
+      )}
+
+      {modal && modal.type === "edit" && modal.event && (
+        <Modal onClose={()=>setModal(null)}>
+          <EventForm
+            initial={modal.event}
+            onSave={handleSave}
+            onCancel={()=>setModal(null)}
+            onDelete={handleDelete}
+          />
+        </Modal>
+      )}
+
+      {/* Bottom hint */}
+      <div style={{
+        textAlign:"center", padding:"16px 16px 24px",
+        fontSize:11, color:"#bbb",
+      }}>
+        לחץ על יום בלוח להוספת אירוע · לחץ על אירוע לעריכה · האירועים נשמרים אוטומטית
+      </div>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
