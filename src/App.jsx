@@ -419,6 +419,32 @@ function EventDot({ cat }) {
   );
 }
 
+// שדה קישור לקריאה בלבד + כפתור העתקה — בכוונה בלי onClick שמפעיל select() על ה-input,
+// כי זה גורם לזום אוטומטי/תפריט בחירה מובנה בחלק מהדפדפנים הניידים.
+function CopyLinkField({ value, style }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div style={{display:"flex", gap:8, alignItems:"center", ...style}}>
+      <input readOnly value={value} tabIndex={-1}
+        style={{...inputStyle, direction:"ltr", fontSize:16, flex:1}} />
+      <button
+        onClick={async () => {
+          try { await navigator.clipboard.writeText(value); } catch (e) {}
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        style={{
+          padding:"7px 14px", borderRadius:8, border:"1.5px solid #e5e7eb",
+          background: copied ? "#27ae60" : "#fff", color: copied ? "#fff" : "#333",
+          fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap",
+          fontFamily:"inherit", flexShrink:0,
+        }}>
+        {copied ? "✓ הועתק" : "📋 העתק"}
+      </button>
+    </div>
+  );
+}
+
 function Modal({ children, onClose }) {
   return (
     <div style={{
@@ -831,9 +857,7 @@ function TeamMemberForm({ initial, onSave, onCancel }) {
       {initial && initial["טוקן אישי"] && (
         <div style={{marginBottom:14, padding:"8px 10px", background:"#f0f6ff", borderRadius:8, fontSize:11}}>
           <div style={{fontWeight:600, color:"#555", marginBottom:3}}>קישור אישי לדשבורד (לשליחה ל{form.name}):</div>
-          <input readOnly value={SITE_URL + "?staff=" + initial["טוקן אישי"]}
-            onClick={e=>e.target.select()}
-            style={{...inputStyle, direction:"ltr", fontSize:16, background:"#fff"}} />
+          <CopyLinkField value={SITE_URL + "?staff=" + initial["טוקן אישי"]} />
         </div>
       )}
 
@@ -2063,9 +2087,7 @@ function MainApp({ session, onLogout }) {
             <div style={{fontSize:12, color:"#555", marginBottom:8}}>
               קישור לתצוגת צפייה בלבד (בלי עריכה) עם רק מה שרלוונטי להורים. אפשר לשלוח אותו לכל ההורים — אותו קישור לכולם.
             </div>
-            <input readOnly value={SITE_URL + "?parents=1"}
-              onClick={e=>e.target.select()}
-              style={{...inputStyle, direction:"ltr", fontSize:16, marginBottom:20}} />
+            <CopyLinkField value={SITE_URL + "?parents=1"} style={{marginBottom:20}} />
 
             <div style={{fontWeight:800, fontSize:15, marginBottom:12, color:"#1a1a2e"}}>
               🔑 קישור כניסה לצוות
@@ -2073,9 +2095,7 @@ function MainApp({ session, onLogout }) {
             <div style={{fontSize:12, color:"#555", marginBottom:8}}>
               קישור האתר הרגיל — כל איש צוות נכנס אליו עם חשבון הגוגל האישי שלו, ורואה את הלוח + המשימות האישיות שלו (זיהוי לפי כתובת המייל בלשונית "צוות").
             </div>
-            <input readOnly value={SITE_URL}
-              onClick={e=>e.target.select()}
-              style={{...inputStyle, direction:"ltr", fontSize:16, marginBottom:14}} />
+            <CopyLinkField value={SITE_URL} style={{marginBottom:14}} />
 
             <div style={{display:"flex", justifyContent:"flex-end"}}>
               <button onClick={()=>setModal(null)} style={{
