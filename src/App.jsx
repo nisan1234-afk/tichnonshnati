@@ -1755,7 +1755,7 @@ function MainApp({ session, onLogout }) {
                 <span onClick={onLogout} style={{textDecoration:"underline", cursor:"pointer"}}>התנתקות</span>
               </div>
             </div>
-            <div style={{display:"flex", gap:8}}>
+            <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
               <button
                 onClick={() => setModal({type:"parentsLink"})}
                 style={{
