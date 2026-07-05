@@ -833,7 +833,7 @@ function TeamMemberForm({ initial, onSave, onCancel }) {
           <div style={{fontWeight:600, color:"#555", marginBottom:3}}>קישור אישי לדשבורד (לשליחה ל{form.name}):</div>
           <input readOnly value={SITE_URL + "?staff=" + initial["טוקן אישי"]}
             onClick={e=>e.target.select()}
-            style={{...inputStyle, direction:"ltr", fontSize:11, background:"#fff"}} />
+            style={{...inputStyle, direction:"ltr", fontSize:16, background:"#fff"}} />
         </div>
       )}
 
@@ -2065,7 +2065,7 @@ function MainApp({ session, onLogout }) {
             </div>
             <input readOnly value={SITE_URL + "?parents=1"}
               onClick={e=>e.target.select()}
-              style={{...inputStyle, direction:"ltr", marginBottom:20}} />
+              style={{...inputStyle, direction:"ltr", fontSize:16, marginBottom:20}} />
 
             <div style={{fontWeight:800, fontSize:15, marginBottom:12, color:"#1a1a2e"}}>
               🔑 קישור כניסה לצוות
@@ -2075,7 +2075,7 @@ function MainApp({ session, onLogout }) {
             </div>
             <input readOnly value={SITE_URL}
               onClick={e=>e.target.select()}
-              style={{...inputStyle, direction:"ltr", marginBottom:14}} />
+              style={{...inputStyle, direction:"ltr", fontSize:16, marginBottom:14}} />
 
             <div style={{display:"flex", justifyContent:"flex-end"}}>
               <button onClick={()=>setModal(null)} style={{
