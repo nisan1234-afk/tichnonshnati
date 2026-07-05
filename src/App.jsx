@@ -160,7 +160,7 @@ function generateUniqueId() {
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 
 // ── API Configuration ──────────────────────────────────────────
-const API_URL = "https://script.google.com/macros/s/AKfycbyoggzvlDIHAlMsB9nSIGxRaWlRCEkpIQxqaURij7z5EbkiPIB7O2oUz2JW6FAkeCRfpw/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzfMzOr5Ks2WCcdSLrtlTSfUREq8ZrHWRnyOlO2k9SMTq6ASnVpz0slzOkZR7fxTfBT/exec";
 const SITE_URL = "https://nisan1234-afk.github.io/tichnonshnati/";
 const GOOGLE_CLIENT_ID = "1019791950162-hv5jhr1omsjsstmbnenf9mdr6kdila54.apps.googleusercontent.com";
 
@@ -1661,6 +1661,18 @@ function MainApp({ session, onLogout }) {
     setMyTasks(prev => prev.map(t => t.id === id ? { ...t, status, notes } : t));
   }, [token]);
 
+  // שומרים את מצב המשימות המעודכן גם ב-sessionStorage, כדי שרענון הדף לא יחזיר סטטוס ישן
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("rakazSession");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        parsed.tasks = myTasks;
+        sessionStorage.setItem("rakazSession", JSON.stringify(parsed));
+      }
+    } catch (e) {}
+  }, [myTasks]);
+
   const toggleCat = (cat) => {
     setSelectedCats(prev =>
       prev.includes(cat) ? prev.filter(c=>c!==cat) : [...prev, cat]
@@ -1755,6 +1767,19 @@ function MainApp({ session, onLogout }) {
                   🔔 בקשות ממתינות{alerts.length > 0 ? ` (${alerts.length})` : ""}
                 </button>
               )}
+              {myTasks.length > 0 && (
+                <button
+                  onClick={() => setModal({type:"myTasks"})}
+                  style={{
+                    background: myTasks.some(t=>t.status!=="✅ בוצע") ? "#e67e22" : "rgba(255,255,255,0.15)",
+                    border:"1.5px solid rgba(255,255,255,0.3)",
+                    color:"#fff", padding:"8px 18px", borderRadius:20, cursor:"pointer",
+                    fontWeight:700, fontSize:13, fontFamily:"inherit",
+                    display:"flex", alignItems:"center", gap:6,
+                  }}>
+                  📌 המשימות שלי{myTasks.some(t=>t.status!=="✅ בוצע") ? ` (${myTasks.filter(t=>t.status!=="✅ בוצע").length})` : ""}
+                </button>
+              )}
               <button
                 onClick={() => { setNewEventDate(""); setModal({type:"new"}); }}
                 style={{
@@ -1785,25 +1810,6 @@ function MainApp({ session, onLogout }) {
       </div>
 
       <div style={{maxWidth:1100, margin:"0 auto", padding:"16px 16px"}}>
-
-        {/* ── המשימות האישיות שלי (אם יש) ── */}
-        {myTasks.length > 0 && (
-          <div style={{
-            background:"#fff", borderRadius:12, padding:16, marginBottom:16,
-            border:"1.5px solid #f0ad4e",
-          }}>
-            <div style={{fontSize:15, fontWeight:800, marginBottom:10, color:"#1a1a2e"}}>
-              📌 המשימות האישיות שלך
-              {" "}
-              <span style={{fontSize:12, fontWeight:600, color: myTasks.some(t=>t.status!=="✅ בוצע") ? "#c0392b" : "#27ae60"}}>
-                ({myTasks.filter(t=>t.status!=="✅ בוצע").length} עוד לא סומנו כבוצעו)
-              </span>
-            </div>
-            {myTasks.map(t => (
-              <TaskCard key={t.id + "_" + t.field} task={t} onSave={handleUpdateMyTask} />
-            ))}
-          </div>
-        )}
 
         {/* ── Loading / Error ── */}
         {loading && (
@@ -2014,6 +2020,23 @@ function MainApp({ session, onLogout }) {
             onReject={async (id) => { await handleReject(id); setModal(null); }}
             onClose={()=>setModal(null)}
           />
+        </Modal>
+      )}
+
+      {modal && modal.type === "myTasks" && (
+        <Modal onClose={()=>setModal(null)}>
+          <div style={{direction:"rtl", fontFamily:"inherit"}}>
+            <div style={{fontSize:15, fontWeight:800, marginBottom:10, color:"#1a1a2e"}}>
+              📌 המשימות האישיות שלך
+              {" "}
+              <span style={{fontSize:12, fontWeight:600, color: myTasks.some(t=>t.status!=="✅ בוצע") ? "#c0392b" : "#27ae60"}}>
+                ({myTasks.filter(t=>t.status!=="✅ בוצע").length} עוד לא סומנו כבוצעו)
+              </span>
+            </div>
+            {myTasks.map(t => (
+              <TaskCard key={t.id + "_" + t.field} task={t} onSave={handleUpdateMyTask} />
+            ))}
+          </div>
         </Modal>
       )}
 
