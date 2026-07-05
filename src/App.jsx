@@ -15,6 +15,27 @@ const CATEGORIES = {
   gen:     { label: "כללי",           color: "#34495e", bg: "#ecf0f1" },
 };
 
+// יומני Google Calendar שהאירועים מסונכרנים אליהם אוטומטית (ראה CALENDAR_IDS ב-Code.gs)
+const CALENDAR_LINKS = [
+  { key: "main",         label: "יומן ראשי" },
+  { key: "staff",        label: "יומן צוות" },
+  { key: "parents",      label: "יומן הורים" },
+  { key: "transport",    label: "יומן הסעות" },
+  { key: "food",         label: "יומן אוכל" },
+  { key: "tripApproval", label: "יומן אישורי טיולים" },
+];
+const CALENDAR_IDS = {
+  main:         "aaace518400d94ae71ee916674de285dd5d02cf91ad0ac710c6d13b4276f32f8@group.calendar.google.com",
+  staff:        "e898cee8224987a291f2b48e43c40d205e1642fe12779504dc12bc0180af7a94@group.calendar.google.com",
+  parents:      "dfea5fe2f9eb41c51ee7ad5eac53376fa70e908d169900cd8c4e214449f2e094@group.calendar.google.com",
+  transport:    "1d9630d30833e8756f6049faa6075ea91a2d7a4f6810dcf14570dba2703d1ad9@group.calendar.google.com",
+  food:         "1df8477260b043241f4c1dfe91cca1e4c9aa27ffb1f5809f9ef8825aac703ca7@group.calendar.google.com",
+  tripApproval: "0e48c3a13df1256eb3df83b604d27710fd4ee7662d62c5b88a035307a211ee98@group.calendar.google.com",
+};
+function calendarSubscribeLink(calId) {
+  return "https://calendar.google.com/calendar/u/0/r?cid=" + encodeURIComponent(calId);
+}
+
 const TARGET_OPTIONS = [
   "ט1","ט2","י1","י2","יא1","יא2","יב1","יב2",
   "צוות","מנהלים","מחנכים","כלל","חילוץ","ספורט",
@@ -2097,7 +2118,20 @@ function MainApp({ session, onLogout }) {
             </div>
             <CopyLinkField value={SITE_URL} style={{marginBottom:14}} />
 
-            <div style={{display:"flex", justifyContent:"flex-end"}}>
+            <div style={{fontWeight:800, fontSize:15, marginBottom:12, color:"#1a1a2e"}}>
+              🗓️ יומני Google Calendar
+            </div>
+            <div style={{fontSize:12, color:"#555", marginBottom:8}}>
+              קישור למי שרוצה להוסיף יומן ספציפי ליומן הגוגל האישי שלו. חשוב: כדי שהקישור באמת יעבוד למי שאין לו כבר גישה, צריך פעם אחת לפתוח את היומן ב-Google Calendar ולוודא ב"הגדרות ושיתוף" ← "הרשאות גישה" שהוא מוגדר כ"זמין לכולם" או משותף עם האנשים הרלוונטיים.
+            </div>
+            {CALENDAR_LINKS.map(c => (
+              <div key={c.key} style={{marginBottom:10}}>
+                <div style={{fontSize:12, fontWeight:600, color:"#555", marginBottom:3}}>{c.label}</div>
+                <CopyLinkField value={calendarSubscribeLink(CALENDAR_IDS[c.key])} />
+              </div>
+            ))}
+
+            <div style={{display:"flex", justifyContent:"flex-end", marginTop:8}}>
               <button onClick={()=>setModal(null)} style={{
                 padding:"7px 18px", borderRadius:8, border:"none",
                 background:"#2c3e50", color:"#fff", fontWeight:700, cursor:"pointer", fontSize:13,
