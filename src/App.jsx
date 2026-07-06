@@ -559,7 +559,7 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
       <div style={{fontWeight:800, fontSize:15, marginBottom:16, color:"#1a1a2e",
         position:"sticky", top:0, background:"#fff", paddingBottom:8,
         borderBottom:"1px solid #eee", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-        <span>{initial ? "עריכת אירוע" : "הוספת אירוע חדש"}</span>
+        <span>{initial?.id ? "עריכת אירוע" : "הוספת אירוע חדש"}</span>
         {isPendingDelete && (
           <span style={{fontSize:11, background:"#fff3e0", color:"#e65100",
             padding:"2px 8px", borderRadius:10, fontWeight:600}}>⏳ ממתין למחיקה</span>
@@ -1611,6 +1611,7 @@ function MainApp({ session, onLogout }) {
   const [searchQ, setSearchQ] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [modal, setModal] = useState(null); // null | {type:"new"|"edit"|"day", ...}
+  const [toast, setToast] = useState(null); // null | {type:"saving"|"success"|"error", message, retry?}
   const [newEventDate, setNewEventDate] = useState("");
   const [team, setTeam] = useState([]);
   const [teamFull, setTeamFull] = useState([]);
@@ -1643,20 +1644,40 @@ function MainApp({ session, onLogout }) {
     refreshAlerts();
   }, [refreshAlerts, isAdmin, credential]);
 
-  const handleSave = useCallback(async (form) => {
-    if (modal?.type === "edit" && modal.event) {
-      // עדכון ב-API
-      await apiUpdateEvent(modal.event.id, form, credential);
-    } else {
-      // הוספה ב-API
-      await apiAddEvent(form, credential);
-    }
-    // טען מחדש מה-API
-    setLoading(true);
-    const data = await loadEvents();
-    if (data) setEvents(data);
-    setLoading(false);
+  const handleSave = useCallback((form) => {
+    const isEdit = modal?.type === "edit" && modal.event;
+    const eventId = isEdit ? modal.event.id : null;
+    const eventDate = modal?.date;
+
+    // סוגרים את החלון מיד ולא מחכים לתשובת השרת — השמירה ממשיכה ברקע
     setModal(null);
+    setToast({ type: "saving", message: "שומר ברקע…" });
+
+    (async () => {
+      try {
+        const result = isEdit
+          ? await apiUpdateEvent(eventId, form, credential)
+          : await apiAddEvent(form, credential);
+        if (!result || result.success === false) {
+          throw new Error((result && result.error) || "השמירה נכשלה");
+        }
+        const data = await loadEvents();
+        if (data) setEvents(data);
+        setToast({ type: "success", message: "✓ נשמר בהצלחה" });
+        setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 2500);
+      } catch (err) {
+        setToast({
+          type: "error",
+          message: (err && err.message) || "השמירה נכשלה",
+          retry: () => {
+            setModal(isEdit
+              ? { type: "edit", event: { ...modal.event, ...form } }
+              : { type: "new", date: eventDate, presetForm: form });
+            setToast(null);
+          },
+        });
+      }
+    })();
   }, [modal, credential]);
 
   const handleDelete = useCallback(async (id) => {
@@ -2047,7 +2068,7 @@ function MainApp({ session, onLogout }) {
       {modal && modal.type === "new" && (
         <Modal onClose={()=>setModal(null)}>
           <EventForm
-            initial={{ title:"", date: modal.date||"", cat:"gen", target:"", targetCustom:"", leader:"", participants:"", timeStart:"", timeEnd:"", transport:"", transportNote:"", food:"", foodNote:"", specialRequests:"", tripApproval:"", note:"", parentNote:"" }}
+            initial={modal.presetForm || { title:"", date: modal.date||"", cat:"gen", target:"", targetCustom:"", leader:"", participants:"", timeStart:"", timeEnd:"", transport:"", transportNote:"", food:"", foodNote:"", specialRequests:"", tripApproval:"", note:"", parentNote:"" }}
             onSave={handleSave}
             onCancel={()=>setModal(null)}
             staffList={staffList}
@@ -2166,6 +2187,35 @@ function MainApp({ session, onLogout }) {
       }}>
         לחץ על יום בלוח להוספת אירוע · לחץ על אירוע לעריכה · האירועים נשמרים אוטומטית
       </div>
+
+      {/* ── התראת שמירה ברקע ── */}
+      {toast && (
+        <div style={{
+          position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)",
+          zIndex:2000, maxWidth:"92vw",
+          background: toast.type==="error" ? "#fdecea" : toast.type==="success" ? "#eafaf1" : "#2c3e50",
+          color: toast.type==="error" ? "#c0392b" : toast.type==="success" ? "#1e8449" : "#fff",
+          border: `1.5px solid ${toast.type==="error" ? "#e74c3c" : toast.type==="success" ? "#27ae60" : "#2c3e50"}`,
+          borderRadius:30, padding:"10px 18px", display:"flex", alignItems:"center", gap:12,
+          boxShadow:"0 6px 24px rgba(0,0,0,0.2)", fontSize:13, fontWeight:600, fontFamily:"inherit",
+        }}>
+          <span>
+            {toast.type==="saving" ? "⏳" : toast.type==="success" ? "✓" : "⚠️"} {toast.message}
+          </span>
+          {toast.retry && (
+            <button onClick={toast.retry} style={{
+              padding:"5px 14px", borderRadius:16, border:"none",
+              background:"#c0392b", color:"#fff", fontWeight:700, cursor:"pointer",
+              fontSize:12, fontFamily:"inherit", whiteSpace:"nowrap",
+            }}>
+              פתח שוב
+            </button>
+          )}
+          {toast.type !== "saving" && (
+            <span onClick={()=>setToast(null)} style={{cursor:"pointer", opacity:0.6, fontWeight:800}}>✕</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
