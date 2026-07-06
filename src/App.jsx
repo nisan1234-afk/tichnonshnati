@@ -1680,36 +1680,47 @@ function MainApp({ session, onLogout }) {
     })();
   }, [modal, credential]);
 
-  const handleDelete = useCallback(async (id) => {
+  // מפעיל פעולת רקע (שליחה לשרת + רענון), עם התראה שנשארת בזמן ההמתנה
+  // ומאפשרת "פתח שוב" (שחוזר על אותה פעולה, בלי לבקש שוב פרטים) אם היא נכשלת.
+  const runBackgroundAction = useCallback((savingMsg, successMsg, action) => {
+    setToast({ type: "saving", message: savingMsg });
+    (async () => {
+      try {
+        const result = await action();
+        if (!result || result.success === false) {
+          throw new Error((result && result.error) || "הפעולה נכשלה");
+        }
+        const data = await loadEvents();
+        if (data) setEvents(data);
+        refreshAlerts();
+        setToast({ type: "success", message: successMsg });
+        setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 2500);
+      } catch (err) {
+        setToast({
+          type: "error",
+          message: (err && err.message) || "הפעולה נכשלה",
+          retry: () => { setToast(null); runBackgroundAction(savingMsg, successMsg, action); },
+        });
+      }
+    })();
+  }, [refreshAlerts]);
+
+  const handleDelete = useCallback((id) => {
     const reason = prompt("סיבת המחיקה (רשות):") || "";
-    await apiDeleteEvent(id, reason, credential);
-    // טען מחדש
-    setLoading(true);
-    const data = await loadEvents();
-    if (data) setEvents(data);
-    setLoading(false);
     setModal(null);
-    refreshAlerts();
-  }, [refreshAlerts, credential]);
+    runBackgroundAction("שולח בקשת מחיקה ברקע…", "✓ בקשת המחיקה נשלחה", () => apiDeleteEvent(id, reason, credential));
+  }, [runBackgroundAction, credential]);
 
-  const handleApprove = useCallback(async (eventId) => {
-    await apiApproveDelete(eventId, credential);
-    setLoading(true);
-    const data = await loadEvents();
-    if (data) setEvents(data);
-    setLoading(false);
-    refreshAlerts();
-  }, [refreshAlerts, credential]);
+  const handleApprove = useCallback((eventId) => {
+    setModal(null);
+    runBackgroundAction("מאשר מחיקה ברקע…", "✓ האירוע נמחק", () => apiApproveDelete(eventId, credential));
+  }, [runBackgroundAction, credential]);
 
-  const handleReject = useCallback(async (eventId) => {
+  const handleReject = useCallback((eventId) => {
     const reason = prompt("סיבת הדחייה (רשות):") || "";
-    await apiRejectDelete(eventId, reason, credential);
-    setLoading(true);
-    const data = await loadEvents();
-    if (data) setEvents(data);
-    setLoading(false);
-    refreshAlerts();
-  }, [refreshAlerts, credential]);
+    setModal(null);
+    runBackgroundAction("דוחה בקשה ברקע…", "✓ הבקשה נדחתה", () => apiRejectDelete(eventId, reason, credential));
+  }, [runBackgroundAction, credential]);
 
   const handleSaveTeamMember = useCallback(async (form, originalName) => {
     if (originalName) {
@@ -2092,8 +2103,8 @@ function MainApp({ session, onLogout }) {
         <Modal onClose={()=>setModal(null)}>
           <ControlPanel
             alerts={alerts}
-            onApprove={async (id) => { await handleApprove(id); setModal(null); }}
-            onReject={async (id) => { await handleReject(id); setModal(null); }}
+            onApprove={handleApprove}
+            onReject={handleReject}
             onClose={()=>setModal(null)}
           />
         </Modal>
