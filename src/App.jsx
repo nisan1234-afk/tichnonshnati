@@ -1767,14 +1767,14 @@ function MainApp({ session, onLogout }) {
     setMyTasks(prev => prev.map(t => t.id === id ? { ...t, status, notes } : t));
   }, [token]);
 
-  // שומרים את מצב המשימות המעודכן גם ב-sessionStorage, כדי שרענון הדף לא יחזיר סטטוס ישן
+  // שומרים את מצב המשימות המעודכן גם ב-localStorage, כדי שרענון הדף לא יחזיר סטטוס ישן
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("rakazSession");
+      const raw = localStorage.getItem("rakazSession");
       if (raw) {
         const parsed = JSON.parse(raw);
         parsed.tasks = myTasks;
-        sessionStorage.setItem("rakazSession", JSON.stringify(parsed));
+        localStorage.setItem("rakazSession", JSON.stringify(parsed));
       }
     } catch (e) {}
   }, [myTasks]);
@@ -2265,7 +2265,7 @@ function MainApp({ session, onLogout }) {
 function SiteLoginGate() {
   const [session, setSession] = useState(() => {
     try {
-      const raw = sessionStorage.getItem("rakazSession");
+      const raw = localStorage.getItem("rakazSession");
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
   });
@@ -2289,7 +2289,7 @@ function SiteLoginGate() {
             token: data.token, tasks: data.tasks || [],
           };
           setSession(newSession);
-          try { sessionStorage.setItem("rakazSession", JSON.stringify(newSession)); } catch (e) {}
+          try { localStorage.setItem("rakazSession", JSON.stringify(newSession)); } catch (e) {}
         } else {
           setError(data.error || "ההתחברות נכשלה");
           setStatus("error");
@@ -2316,7 +2316,7 @@ function SiteLoginGate() {
 
   const handleLogout = () => {
     setSession(null);
-    try { sessionStorage.removeItem("rakazSession"); } catch (e) {}
+    try { localStorage.removeItem("rakazSession"); } catch (e) {}
   };
 
   if (session) {
