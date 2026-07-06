@@ -1105,19 +1105,18 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
 
 const MONTH_HEADER_COLORS_JS = MONTH_COLORS;
 
-// ─── תצוגה שנתית — כל החודשים בגריד קומפקטי ─────────────────────────────────
 
-function MiniMonth({ mk, events, onDayClick, onMonthClick }) {
+// ─── תצוגה שנתית — רצועה אופקית לכל חודש (בסגנון הלוח הצבעוני) ───────────────
+
+function MonthTimelineRow({ mk, events, onDayClick, onEventClick, onMonthClick }) {
   const { y, m } = parseMonthKey(mk);
-  const totalDays = getDaysInMonth(y, m);
-  const firstWd = getFirstWeekday(y, m);
+  const daysInMonth = getDaysInMonth(y, m);
   const color = MONTH_HEADER_COLORS_JS[mk] || "#2c3e50";
   const monthName = MONTH_NAMES_GRE[mk] || mk;
 
-  const cells = [];
-  for (let i = 0; i < firstWd; i++) cells.push(null);
-  for (let d = 1; d <= totalDays; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
+  const heb1 = jewishDate(y, m, 1);
+  const hebLast = jewishDate(y, m, daysInMonth);
+  const hebRange = heb1.mn === hebLast.mn ? `${heb1.mn} תשפ"ז` : `${heb1.mn} – ${hebLast.mn} תשפ"ז`;
 
   const byDay = {};
   events.forEach(ev => {
@@ -1129,53 +1128,65 @@ function MiniMonth({ mk, events, onDayClick, onMonthClick }) {
     byDay[d].push(ev);
   });
 
-  const weeks = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-
-  const headerDays = ["א","ב","ג","ד","ה","ו","ש"];
+  const headerDays = ["א","ב","ג","ד","ה","ו","שבת"];
+  const days = [];
+  for (let d = 1; d <= daysInMonth; d++) days.push(d);
 
   return (
-    <div style={{borderRadius:10, overflow:"hidden", border:"1px solid #e5e7eb", boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-      <div onClick={()=>onMonthClick(mk)} style={{
-        background:color, color:"#fff", padding:"6px 8px", fontSize:12,
-        fontWeight:800, cursor:"pointer", textAlign:"center",
+    <div style={{marginBottom:16, borderRadius:10, overflow:"hidden", border:"1px solid #e5e7eb", boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+      <div onClick={onMonthClick ? () => onMonthClick(mk) : undefined} style={{
+        background:color, color:"#fff", padding:"8px 14px",
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+        cursor: onMonthClick ? "pointer" : "default",
       }}>
-        {monthName}
+        <span style={{fontWeight:800, fontSize:14}}>{monthName}</span>
+        <span style={{fontSize:11, opacity:0.8}}>{hebRange}</span>
       </div>
-      <div style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)", background:"#f8f9fa"}}>
-        {headerDays.map((d,i) => (
-          <div key={i} style={{textAlign:"center", fontSize:8, color:"#999", padding:"2px 0"}}>{d}</div>
-        ))}
-      </div>
-      {weeks.map((week, wi) => (
-        <div key={wi} style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)"}}>
-          {week.map((day, di) => {
-            if (!day) return <div key={di} style={{minHeight:24, background:"#fafafa"}} />;
-            const evs = byDay[day] || [];
-            const isSat = di === 6, isFri = di === 5;
+      <div style={{overflowX:"auto"}}>
+        <div style={{display:"flex", minWidth:"max-content"}}>
+          {days.map(d => {
+            const dow = new Date(y, m - 1, d).getDay();
+            const hd = jewishDate(y, m, d);
+            const isSat = dow === 6, isFri = dow === 5;
+            const evs = byDay[d] || [];
             return (
-              <div key={di} onClick={()=>onDayClick(formatDateKey(y,m,day))}
+              <div key={d}
+                onClick={() => onDayClick(formatDateKey(y, m, d))}
                 style={{
-                  minHeight:24, padding:"1px", cursor:"pointer", textAlign:"center",
+                  minWidth:72, maxWidth:72, flexShrink:0, cursor:"pointer",
+                  borderInlineEnd:"1px solid #f0f0f0",
                   background: isSat ? "#fdf5f5" : isFri ? "#fffdf0" : "#fff",
-                  border:"0.5px solid #f5f5f5",
                 }}>
-                <div style={{fontSize:9, color: isSat?"#c0392b":isFri?"#b7770d":"#333", lineHeight:1.4}}>{day}</div>
-                {evs.length > 0 && (
-                  <div style={{display:"flex", justifyContent:"center", gap:1, flexWrap:"wrap"}}>
-                    {evs.slice(0,3).map(ev => (
-                      <div key={ev.id} style={{
-                        width:4, height:4, borderRadius:"50%",
-                        background: CATEGORIES[ev.cat]?.color || "#999",
-                      }} />
-                    ))}
+                <div style={{textAlign:"center", padding:"4px 0", borderBottom:"1px solid #f0f0f0"}}>
+                  <div style={{fontSize:9, fontWeight:600, color: isSat?"#c0392b":isFri?"#b7770d":"#999"}}>
+                    {headerDays[dow]}
                   </div>
-                )}
+                  <div style={{fontSize:13, fontWeight:800, color:"#1a1a2e", lineHeight:1.3}}>{d}</div>
+                  <div style={{fontSize:8, color:"#bbb"}}>{HEB_NUMS[hd.d] || hd.d}</div>
+                </div>
+                <div style={{minHeight:56, padding:"3px", display:"flex", flexDirection:"column", gap:2}}>
+                  {evs.slice(0,3).map(ev => (
+                    <div key={ev.id}
+                      onClick={e => { e.stopPropagation(); onEventClick(ev); }}
+                      title={ev.title}
+                      style={{
+                        background: CATEGORIES[ev.cat]?.bg || "#f0f0f0",
+                        borderInlineStart: `3px solid ${CATEGORIES[ev.cat]?.color || "#999"}`,
+                        borderRadius:4, padding:"2px 4px", fontSize:8.5, color:"#222",
+                        cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                      }}>
+                      {ev.title}
+                    </div>
+                  ))}
+                  {evs.length > 3 && (
+                    <div style={{fontSize:7.5, color:"#999"}}>+{evs.length - 3} עוד…</div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
-      ))}
+      </div>
     </div>
   );
 }
@@ -1577,14 +1588,12 @@ function ParentsView() {
 
             {/* ── YEARLY VIEW ── */}
             {view === "yearly" && (
-              <div style={{
-                display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(210px, 1fr))", gap:12,
-              }}>
+              <div>
                 {MONTHS_ORDER.map(mk => (
-                  <MiniMonth
+                  <MonthTimelineRow
                     key={mk} mk={mk} events={filtered}
                     onDayClick={noop}
-                    onMonthClick={(mk) => { setSelectedMonth(mk); setView("calendar"); }}
+                    onEventClick={noop}
                   />
                 ))}
               </div>
@@ -2084,11 +2093,9 @@ function MainApp({ session, onLogout }) {
 
         {/* ── YEARLY VIEW ── */}
         {view === "yearly" && (
-          <div style={{
-            display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(210px, 1fr))", gap:12,
-          }}>
+          <div>
             {MONTHS_ORDER.map(mk => (
-              <MiniMonth
+              <MonthTimelineRow
                 key={mk}
                 mk={mk}
                 events={filtered}
@@ -2096,6 +2103,7 @@ function MainApp({ session, onLogout }) {
                   setNewEventDate(dateStr);
                   setModal({type:"new", date: dateStr});
                 }}
+                onEventClick={(ev) => setModal({type:"edit", event:ev})}
                 onMonthClick={(mk) => { setSelectedMonth(mk); setView("calendar"); }}
               />
             ))}
