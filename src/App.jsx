@@ -1835,6 +1835,16 @@ function MainApp({ session, onLogout }) {
                 }}>
                 ＋ אירוע חדש
               </button>
+              <button
+                onClick={() => window.open(SITE_URL + "guide.pdf", "_blank")}
+                style={{
+                  background:"rgba(255,255,255,0.15)", border:"1.5px solid rgba(255,255,255,0.3)",
+                  color:"#fff", padding:"8px 18px", borderRadius:20, cursor:"pointer",
+                  fontWeight:700, fontSize:13, fontFamily:"inherit",
+                  display:"flex", alignItems:"center", gap:6,
+                }}>
+                📖 מדריך למערכת
+              </button>
             </div>
           </div>
 
@@ -2117,6 +2127,14 @@ function MainApp({ session, onLogout }) {
               קישור האתר הרגיל — כל איש צוות נכנס אליו עם חשבון הגוגל האישי שלו, ורואה את הלוח + המשימות האישיות שלו (זיהוי לפי כתובת המייל בלשונית "צוות").
             </div>
             <CopyLinkField value={SITE_URL} style={{marginBottom:14}} />
+
+            <div style={{fontWeight:800, fontSize:15, marginBottom:12, color:"#1a1a2e"}}>
+              📖 מדריך למערכת
+            </div>
+            <div style={{fontSize:12, color:"#555", marginBottom:8}}>
+              מדריך מקיף (PDF) שמסביר את כל היכולות של המערכת — אפשר גם לפתוח אותו ישירות מכפתור "📖 מדריך למערכת" בראש הדף.
+            </div>
+            <CopyLinkField value={SITE_URL + "guide.pdf"} style={{marginBottom:20}} />
 
             <div style={{fontWeight:800, fontSize:15, marginBottom:12, color:"#1a1a2e"}}>
               🗓️ יומני Google Calendar
