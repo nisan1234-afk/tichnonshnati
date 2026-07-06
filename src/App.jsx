@@ -1618,6 +1618,35 @@ function MainApp({ session, onLogout }) {
   const [alerts, setAlerts] = useState([]);
   const staffList = useMemo(() => team.map(t => t["שם מלא"]).filter(Boolean), [team]);
 
+  // כפתור "חזרה" בטלפון/דפדפן — סוגר רק את החלון הפתוח, לא יוצא מהאתר.
+  // כשנפתח חלון דוחפים רשומת היסטוריה מדומה; לחיצת "חזרה" צורכת אותה וסוגרת את החלון
+  // במקום לצאת מהאתר. אם החלון נסגר בדרך רגילה (X/ביטול/שמירה) — חוזרים צעד אחד בהיסטוריה
+  // כדי לא להשאיר רשומה מיותרת.
+  const modalOpenRef = useRef(false);
+  useEffect(() => {
+    const isOpen = !!modal;
+    if (isOpen && !modalOpenRef.current) {
+      window.history.pushState({ calendarModalOpen: true }, "");
+      modalOpenRef.current = true;
+    } else if (!isOpen && modalOpenRef.current) {
+      modalOpenRef.current = false;
+      if (window.history.state && window.history.state.calendarModalOpen) {
+        window.history.back();
+      }
+    }
+  }, [modal]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (modalOpenRef.current) {
+        modalOpenRef.current = false;
+        setModal(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const refreshAlerts = useCallback(() => {
     loadAlerts().then(setAlerts);
   }, []);
