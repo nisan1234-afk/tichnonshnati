@@ -185,6 +185,41 @@ const API_URL = "https://script.google.com/macros/s/AKfycbzfMzOr5Ks2WCcdSLrtlTSf
 const SITE_URL = "https://nisan1234-afk.github.io/tichnonshnati/";
 const GOOGLE_CLIENT_ID = "1019791950162-hv5jhr1omsjsstmbnenf9mdr6kdila54.apps.googleusercontent.com";
 
+// קורא את זמן התפוגה (exp) מתוך אישור ההתחברות של גוגל (JWT), בלי לאמת חתימה —
+// זה רק כדי לדעת מתי לרענן אותו מראש, האימות האמיתי תמיד קורה בשרת.
+function decodeJwtExp(token) {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload.exp ? payload.exp * 1000 : null;
+  } catch (e) { return null; }
+}
+
+// מבקש מגוגל אישור התחברות חדש בשקט (בלי להראות למשתמש כלום), כל עוד הוא עדיין
+// מחובר לחשבון הגוגל שלו בדפדפן. משמש לרענון אוטומטי לפני שהאישור הישן פג בפועל.
+function silentGoogleCredential() {
+  return new Promise((resolve) => {
+    if (!window.google || !window.google.accounts) { resolve(null); return; }
+    let settled = false;
+    const finish = (cred) => { if (!settled) { settled = true; resolve(cred); } };
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => finish(response && response.credential ? response.credential : null),
+        auto_select: true,
+        cancel_on_tap_outside: false,
+      });
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
+          finish(null);
+        }
+      });
+    } catch (e) {
+      finish(null);
+    }
+    setTimeout(() => finish(null), 4000); // לא נתקע לנצח אם גוגל לא עונה
+  });
+}
+
 // ── API Functions ───────────────────────────────────────────────
 async function loadEvents() {
   try {
@@ -325,6 +360,46 @@ async function apiUpdateEvent(id, data, credential) {
       id: id,
       data: eventPayload(data),
     })
+  });
+  return await res.json();
+}
+
+// תור שמירות תלויות — נשמר ב-localStorage כדי ששמירה לא תלך לאיבוד אם האפליקציה
+// נסגרת ממש בזמן שהבקשה עוד בדרך לשרת. נמחק מהתור ברגע שהשרת מאשר בהצלחה.
+const PENDING_SAVES_KEY = "pendingEventSaves";
+
+function readPendingSaves() {
+  try { return JSON.parse(localStorage.getItem(PENDING_SAVES_KEY)) || []; }
+  catch (e) { return []; }
+}
+
+function markPendingSave(eventId, entry) {
+  try {
+    const list = readPendingSaves().filter(p => p.eventId !== eventId);
+    list.push({ eventId, ...entry, ts: Date.now() });
+    localStorage.setItem(PENDING_SAVES_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function clearPendingSave(eventId) {
+  try {
+    const list = readPendingSaves().filter(p => p.eventId !== eventId);
+    localStorage.setItem(PENDING_SAVES_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+async function apiApproveEvent(id, credential) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "approveEvent", credential, id }),
+  });
+  return await res.json();
+}
+
+async function apiRejectEvent(id, reason, credential) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "rejectEvent", credential, id, reason: reason || "" }),
   });
   return await res.json();
 }
@@ -553,6 +628,7 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
   const valid = form.title.trim() && form.date;
 
   const isPendingDelete = initial?.status === "ממתין למחיקה";
+  const isPendingApproval = initial?.status === "ממתין לאישור";
 
   return (
     <div style={{direction:"rtl", fontFamily:"inherit", maxHeight:"80vh", overflowY:"auto"}}>
@@ -563,6 +639,10 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
         {isPendingDelete && (
           <span style={{fontSize:11, background:"#fff3e0", color:"#e65100",
             padding:"2px 8px", borderRadius:10, fontWeight:600}}>⏳ ממתין למחיקה</span>
+        )}
+        {isPendingApproval && (
+          <span style={{fontSize:11, background:"#e3f2fd", color:"#1565c0",
+            padding:"2px 8px", borderRadius:10, fontWeight:600}}>🆕 ממתין לאישור הרכז</span>
         )}
       </div>
 
@@ -724,7 +804,7 @@ function ControlPanel({ alerts, onApprove, onReject, onClose }) {
       <div style={{fontWeight:800, fontSize:15, marginBottom:16, color:"#1a1a2e",
         position:"sticky", top:0, background:"#fff", paddingBottom:8,
         borderBottom:"1px solid #eee"}}>
-        🔔 בקשות מחיקה ממתינות לאישור
+        🔔 בקשות ממתינות לאישור
       </div>
 
       {alerts.length === 0 ? (
@@ -733,23 +813,25 @@ function ControlPanel({ alerts, onApprove, onReject, onClose }) {
         </div>
       ) : (
         <div style={{display:"flex", flexDirection:"column", gap:10}}>
-          {alerts.map((a, i) => (
+          {alerts.map((a, i) => {
+            const isNewEvent = a["סוג"] === "בקשת אירוע חדש";
+            return (
             <div key={i} style={{
               border:"1.5px solid #f0f0f0", borderRadius:10, padding:"10px 12px",
               background:"#fafafa",
             }}>
               <div style={{fontWeight:700, fontSize:13, color:"#1a1a2e", marginBottom:4}}>
-                {a["כותרת אירוע"]}
+                {isNewEvent ? "🆕 " : "🗑️ "}{a["כותרת אירוע"]}
               </div>
               <div style={{fontSize:11, color:"#888", marginBottom:8}}>
-                מבקש: {a["מבקש"]} · {a["תאריך"]}
+                {isNewEvent ? "מבקש הוספה" : "מבקש מחיקה"}: {a["מבקש"]} · {a["תאריך"]}
                 {a["סיבה"] && <> · סיבה: {a["סיבה"]}</>}
               </div>
               <div style={{display:"flex", gap:8}}>
                 <button onClick={()=>onApprove(a["מזהה אירוע"])}
                   style={{flex:1, padding:"6px 10px", borderRadius:8, border:"none",
                     background:"#27ae60", color:"#fff", fontWeight:700, cursor:"pointer", fontSize:12}}>
-                  ✅ אשר מחיקה
+                  {isNewEvent ? "✅ אשר אירוע" : "✅ אשר מחיקה"}
                 </button>
                 <button onClick={()=>onReject(a["מזהה אירוע"])}
                   style={{flex:1, padding:"6px 10px", borderRadius:8, border:"none",
@@ -758,7 +840,8 @@ function ControlPanel({ alerts, onApprove, onReject, onClose }) {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1067,27 +1150,32 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
                 </div>
                 {/* Events */}
                 <div style={{display:"flex", flexDirection:"column", gap:1}}>
-                  {evs.slice(0,3).map(ev => (
+                  {evs.slice(0,3).map(ev => {
+                    const isPendingDelete = ev.status === "ממתין למחיקה";
+                    const isPendingApproval = ev.status === "ממתין לאישור";
+                    const isMuted = isPendingDelete || isPendingApproval;
+                    return (
                     <div key={ev.id}
                       onClick={e=>{e.stopPropagation(); onEventClick(ev);}}
                       style={{
                         display:"flex", alignItems:"flex-start", gap:3,
-                        background: ev.status === "ממתין למחיקה" ? "#f5f5f5" : (CATEGORIES[ev.cat]?.bg || "#f0f0f0"),
+                        background: isMuted ? "#f5f5f5" : (CATEGORIES[ev.cat]?.bg || "#f0f0f0"),
                         borderRadius:4, padding:"1px 4px",
-                        cursor:"pointer", border:`1px solid ${ev.status === "ממתין למחיקה" ? "#ccc" : (CATEGORIES[ev.cat]?.color+"22")}`,
-                        opacity: ev.status === "ממתין למחיקה" ? 0.6 : 1,
+                        cursor:"pointer", border:`1px solid ${isMuted ? "#ccc" : (CATEGORIES[ev.cat]?.color+"22")}`,
+                        opacity: isMuted ? 0.7 : 1,
                       }}>
                       <div style={{
                         width:5, height:5, borderRadius:"50%",
-                        background: ev.status === "ממתין למחיקה" ? "#aaa" : (CATEGORIES[ev.cat]?.color||"#999"),
+                        background: isMuted ? "#aaa" : (CATEGORIES[ev.cat]?.color||"#999"),
                         flexShrink:0, marginTop:3,
                       }}/>
-                      <span style={{fontSize:9, lineHeight:1.4, color: ev.status === "ממתין למחיקה" ? "#aaa" : "#222", fontWeight:500,
-                        textDecoration: ev.status === "ממתין למחיקה" ? "line-through" : "none"}}>
-                        {ev.title}
+                      <span style={{fontSize:9, lineHeight:1.4, color: isMuted ? "#aaa" : "#222", fontWeight:500,
+                        textDecoration: isPendingDelete ? "line-through" : "none"}}>
+                        {isPendingApproval ? "🆕 " : ""}{ev.title}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                   {evs.length > 3 && (
                     <span style={{fontSize:8.5, color:"#888", paddingRight:2}}>
                       +{evs.length-3} עוד...
@@ -1684,12 +1772,51 @@ function MainApp({ session, onLogout }) {
 
   const handleSave = useCallback((form) => {
     const isEdit = modal?.type === "edit" && modal.event;
-    const eventId = isEdit ? modal.event.id : null;
+    const eventId = isEdit ? modal.event.id : ("temp-" + Date.now() + Math.random().toString(36).slice(2, 6));
     const eventDate = modal?.date;
+    // מורה (לא אדמין) שמקים אירוע חדש — האירוע עולה במצב "ממתין לאישור",
+    // לא חי מיד, בדיוק כמו שמחיקה דורשת אישור רכז.
+    const isPendingCreation = !isEdit && !isAdmin;
+
+    // עדכון אופטימי: מציגים את האירוע בלוח מיד, לפני שהשרת בכלל ענה.
+    // אם השמירה תיכשל, נחזיר את הלוח בדיוק למצב שהיה לפני הלחיצה (rollbackEvents).
+    const optimisticEvent = {
+      id: eventId,
+      date: form.date,
+      title: form.title,
+      cat: form.cat,
+      target: form.target || "",
+      note: form.note || "",
+      parentNote: form.parentNote || "",
+      leader: form.leader || "",
+      status: isPendingCreation ? "ממתין לאישור" : ((isEdit && modal.event.status) || "פעיל"),
+      timeStart: form.timeStart || "",
+      timeEnd: form.timeEnd || "",
+      participants: form.participants || "",
+      transport: form.transport || "",
+      transportNote: form.transportNote || "",
+      food: form.food || "",
+      foodNote: form.foodNote || "",
+      specialRequests: form.specialRequests || "",
+      tripApproval: form.tripApproval || "",
+      driveLink: (isEdit && modal.event.driveLink) || "",
+    };
+
+    let rollbackEvents = null;
+    setEvents(prev => {
+      rollbackEvents = prev;
+      return isEdit
+        ? prev.map(e => e.id === eventId ? optimisticEvent : e)
+        : [...prev, optimisticEvent];
+    });
 
     // סוגרים את החלון מיד ולא מחכים לתשובת השרת — השמירה ממשיכה ברקע
     setModal(null);
     setToast({ type: "saving", message: "שומר ברקע…" });
+
+    // רושמים בתור השמירות התלויות — אם האפליקציה תיסגר ממש עכשיו, בפעם הבאה
+    // שתיפתח היא תשלים את השמירה הזו לבד, במקום שהיא פשוט תיעלם.
+    markPendingSave(eventId, { isEdit, form });
 
     (async () => {
       try {
@@ -1699,11 +1826,17 @@ function MainApp({ session, onLogout }) {
         if (!result || result.success === false) {
           throw new Error((result && result.error) || "השמירה נכשלה");
         }
+        clearPendingSave(eventId);
         const data = await loadEvents();
         if (data) setEvents(data);
-        setToast({ type: "success", message: "✓ נשמר בהצלחה" });
+        setToast({
+          type: "success",
+          message: isPendingCreation ? "✓ האירוע נשלח לאישור הרכז" : "✓ נשמר בהצלחה",
+        });
         setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 2500);
       } catch (err) {
+        clearPendingSave(eventId);
+        if (rollbackEvents) setEvents(rollbackEvents);
         setToast({
           type: "error",
           message: (err && err.message) || "השמירה נכשלה",
@@ -1716,7 +1849,37 @@ function MainApp({ session, onLogout }) {
         });
       }
     })();
-  }, [modal, credential]);
+  }, [modal, credential, isAdmin]);
+
+  // בפתיחת האפליקציה, משלימים ברקע שמירות שנשארו תלויות מפעם קודמת —
+  // למשל אם האפליקציה נסגרה ממש בזמן שהשמירה עוד הייתה בדרך לשרת.
+  useEffect(() => {
+    const pending = readPendingSaves();
+    if (!pending.length) return;
+    (async () => {
+      let anySucceeded = false;
+      for (const item of pending) {
+        try {
+          const result = item.isEdit
+            ? await apiUpdateEvent(item.eventId, item.form, credential)
+            : await apiAddEvent(item.form, credential);
+          if (!result || result.success === false) {
+            throw new Error((result && result.error) || "השמירה נכשלה");
+          }
+          clearPendingSave(item.eventId);
+          anySucceeded = true;
+        } catch (e) {
+          // משאירים בתור — ננסה שוב בפעם הבאה שהאתר ייפתח
+        }
+      }
+      if (anySucceeded) {
+        const data = await loadEvents();
+        if (data) setEvents(data);
+        setToast({ type: "success", message: "✓ הושלמה שמירה שנשארה פתוחה מקודם" });
+        setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 2500);
+      }
+    })();
+  }, [credential]);
 
   // מפעיל פעולת רקע (שליחה לשרת + רענון), עם התראה שנשארת בזמן ההמתנה
   // ומאפשרת "פתח שוב" (שחוזר על אותה פעולה, בלי לבקש שוב פרטים) אם היא נכשלת.
@@ -1751,14 +1914,24 @@ function MainApp({ session, onLogout }) {
 
   const handleApprove = useCallback((eventId) => {
     setModal(null);
-    runBackgroundAction("מאשר מחיקה ברקע…", "✓ האירוע נמחק", () => apiApproveDelete(eventId, credential));
-  }, [runBackgroundAction, credential]);
+    const alert = alerts.find(a => String(a["מזהה אירוע"]) === String(eventId));
+    if (alert && alert["סוג"] === "בקשת אירוע חדש") {
+      runBackgroundAction("מאשר אירוע חדש ברקע…", "✓ האירוע אושר ועלה ליומן", () => apiApproveEvent(eventId, credential));
+    } else {
+      runBackgroundAction("מאשר מחיקה ברקע…", "✓ האירוע נמחק", () => apiApproveDelete(eventId, credential));
+    }
+  }, [runBackgroundAction, credential, alerts]);
 
   const handleReject = useCallback((eventId) => {
     const reason = prompt("סיבת הדחייה (רשות):") || "";
     setModal(null);
-    runBackgroundAction("דוחה בקשה ברקע…", "✓ הבקשה נדחתה", () => apiRejectDelete(eventId, reason, credential));
-  }, [runBackgroundAction, credential]);
+    const alert = alerts.find(a => String(a["מזהה אירוע"]) === String(eventId));
+    if (alert && alert["סוג"] === "בקשת אירוע חדש") {
+      runBackgroundAction("דוחה אירוע חדש ברקע…", "✓ האירוע נדחה", () => apiRejectEvent(eventId, reason, credential));
+    } else {
+      runBackgroundAction("דוחה בקשה ברקע…", "✓ הבקשה נדחתה", () => apiRejectDelete(eventId, reason, credential));
+    }
+  }, [runBackgroundAction, credential, alerts]);
 
   const handleSaveTeamMember = useCallback(async (form, originalName) => {
     if (originalName) {
@@ -2280,6 +2453,40 @@ function SiteLoginGate() {
   const [status, setStatus] = useState("ready"); // ready | checking | error
   const [error, setError] = useState("");
   const btnRef = useRef(null);
+
+  const updateCredential = useCallback((newCredential) => {
+    setSession(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, credential: newCredential };
+      try { localStorage.setItem("rakazSession", JSON.stringify(updated)); } catch (e) {}
+      return updated;
+    });
+  }, []);
+
+  // רענון שקט של אישור ההתחברות לפני שהוא פג בפועל (בד"כ אחרי כשעה) — כדי שהאתר
+  // לא "ייתקע מחובר" כשגוגל כבר ניתקה אותו ברקע, בלי שתצטרך להתנתק ולהתחבר מחדש.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    let timer = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      const fresh = await silentGoogleCredential();
+      if (cancelled) return;
+      if (fresh) {
+        updateCredential(fresh); // session ישתנה, וה-effect ירוץ מחדש עם תפוגת האישור החדש
+      } else {
+        timer = setTimeout(tick, 5 * 60 * 1000); // גוגל לא ענתה בשקט — ננסה שוב בעוד 5 דק'
+      }
+    };
+
+    const expMs = decodeJwtExp(session.credential);
+    const delay = expMs ? Math.max(60000, expMs - Date.now() - 5 * 60 * 1000) : 45 * 60 * 1000;
+    timer = setTimeout(tick, delay);
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [session, updateCredential]);
 
   useEffect(() => {
     if (session) return;
