@@ -351,6 +351,11 @@ async function apiUpdateEvent(id, data, credential) {
 // נסגרת ממש בזמן שהבקשה עוד בדרך לשרת. נמחק מהתור ברגע שהשרת מאשר בהצלחה.
 const PENDING_SAVES_KEY = "pendingEventSaves";
 
+// מזהה זמני שניתן לאירוע חדש בדפדפן עד שהשרת מחזיר מזהה אמיתי.
+// אסור לשלוח אותו לשרת בבקשות עדכון/מחיקה — השרת לא מכיר אותו.
+function isTempId(id) { return String(id || "").startsWith("temp-"); }
+const STILL_SAVING_MSG = "האירוע עדיין נשמר בשרת, נסה שוב בעוד רגע";
+
 function readPendingSaves() {
   try { return JSON.parse(localStorage.getItem(PENDING_SAVES_KEY)) || []; }
   catch (e) { return []; }
@@ -1754,8 +1759,20 @@ function MainApp({ session, onLogout }) {
     refreshAlerts();
   }, [refreshAlerts, isAdmin, credential]);
 
+  // פתיחת אירוע לעריכה — אירוע שעדיין באמצע שמירה (מזהה זמני) לא נפתח,
+  // כי כל עדכון/מחיקה שלו ייכשל בשרת עם "אירוע לא נמצא: temp-…".
+  const openEvent = useCallback((ev) => {
+    if (isTempId(ev.id)) { setToast({ type: "info", message: STILL_SAVING_MSG }); return; }
+    setModal({ type: "edit", event: ev });
+  }, []);
+
   const handleSave = useCallback((form) => {
     const isEdit = modal?.type === "edit" && modal.event;
+    if (isEdit && isTempId(modal.event.id)) {
+      setModal(null);
+      setToast({ type: "info", message: STILL_SAVING_MSG });
+      return;
+    }
     const eventId = isEdit ? modal.event.id : ("temp-" + Date.now() + Math.random().toString(36).slice(2, 6));
     const eventDate = modal?.date;
     // מורה (לא אדמין) שמקים אירוע חדש — האירוע עולה במצב "ממתין לאישור",
@@ -1843,17 +1860,22 @@ function MainApp({ session, onLogout }) {
     (async () => {
       let anySucceeded = false;
       for (const item of pending) {
+        // עדכון של אירוע עם מזהה זמני לעולם לא יצליח — השרת לא מכיר את המזהה
+        if (item.isEdit && isTempId(item.eventId)) { clearPendingSave(item.eventId); continue; }
         try {
           const result = item.isEdit
             ? await apiUpdateEvent(item.eventId, item.form, credential)
             : await apiAddEvent(item.form, credential);
-          if (!result || result.success === false) {
-            throw new Error((result && result.error) || "השמירה נכשלה");
+          if (result && result.success === false) {
+            // השרת ענה ודחה — אין טעם לנסות שוב בפעם הבאה
+            clearPendingSave(item.eventId);
+            continue;
           }
+          if (!result) throw new Error("השמירה נכשלה");
           clearPendingSave(item.eventId);
           anySucceeded = true;
         } catch (e) {
-          // משאירים בתור — ננסה שוב בפעם הבאה שהאתר ייפתח
+          // כשל רשת — משאירים בתור וננסה שוב בפעם הבאה שהאתר ייפתח
         }
       }
       if (anySucceeded) {
@@ -1891,6 +1913,7 @@ function MainApp({ session, onLogout }) {
   }, [refreshAlerts]);
 
   const handleDelete = useCallback((id) => {
+    if (isTempId(id)) { setModal(null); setToast({ type: "info", message: STILL_SAVING_MSG }); return; }
     const reason = prompt("סיבת המחיקה (רשות):") || "";
     setModal(null);
     runBackgroundAction("שולח בקשת מחיקה ברקע…", "✓ בקשת המחיקה נשלחה", () => apiDeleteEvent(id, reason, credential));
@@ -2206,7 +2229,7 @@ function MainApp({ session, onLogout }) {
                   setNewEventDate(dateStr);
                   setModal({type:"new", date: dateStr});
                 }}
-                onEventClick={(ev) => setModal({type:"edit", event:ev})}
+                onEventClick={openEvent}
               />
             ))}
           </div>
@@ -2240,7 +2263,7 @@ function MainApp({ session, onLogout }) {
                   }}>{MONTH_NAMES_GRE[mk]}</div>
                   {groups[mk].map(ev => (
                     <EventListItem key={ev.id} ev={ev}
-                      onClick={(ev)=>setModal({type:"edit",event:ev})} />
+                      onClick={openEvent} />
                   ))}
                 </div>
               ));
@@ -2260,7 +2283,7 @@ function MainApp({ session, onLogout }) {
                   setNewEventDate(dateStr);
                   setModal({type:"new", date: dateStr});
                 }}
-                onEventClick={(ev) => setModal({type:"edit", event:ev})}
+                onEventClick={openEvent}
                 onMonthClick={(mk) => { setSelectedMonth(mk); setView("calendar"); }}
               />
             ))}
@@ -2405,7 +2428,7 @@ function MainApp({ session, onLogout }) {
           boxShadow:"0 6px 24px rgba(0,0,0,0.2)", fontSize:13, fontWeight:600, fontFamily:"inherit",
         }}>
           <span>
-            {toast.type==="saving" ? "⏳" : toast.type==="success" ? "✓" : "⚠️"} {toast.message}
+            {toast.type==="saving" ? "⏳" : toast.type==="success" ? "✓" : toast.type==="info" ? "ℹ️" : "⚠️"} {toast.message}
           </span>
           {toast.retry && (
             <button onClick={toast.retry} style={{
