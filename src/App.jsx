@@ -88,56 +88,39 @@ const MONTH_NAMES_GRE = {
   "06-2027":"יוני 2027",
 };
 
-// Hebrew calendar dates for 5787 (pre-computed anchor: Sep 12 2026 = 1 Tishri 5787)
-// We'll compute on-the-fly with a JS implementation
-function jewishDate(year, month, day) {
-  // Zeller/Meeus algorithm simplified - using lookup table for 5787
-  // Anchor: 1 Tishri 5787 = Sep 12 2026 = JD 2461301
-  const JD_ANCHOR = 2461301; // Sep 12 2026
-  const TISHRI1_5787 = JD_ANCHOR;
-
-  // Month lengths for 5787 (שנה מעוברת שלמה = 385 days)
-  const MONTH_LENGTHS_5787 = [0,30,29,29,30,29,30,30,29,30,29,30,29,29];
-  // months: 1=Nisan..6=Elul, 7=Tishri..13=AdarII (leap)
-
-  function jdFromGreg(y, m, d) {
-    if (m <= 2) { y -= 1; m += 12; }
-    const A = Math.floor(y/100);
-    const B = 2 - A + Math.floor(A/4);
-    return Math.floor(365.25*(y+4716)) + Math.floor(30.6001*(m+1)) + d + B - 1524;
+// המרת תאריך לועזי לעברי דרך לוח השנה העברי המובנה בדפדפן (Intl).
+// נכון לכל שנה, בלי טבלאות ידניות שצריך לעדכן מדי שנה.
+const HEB_MONTH_INDEX = {
+  "Tishri":7, "Heshvan":8, "Kislev":9, "Tevet":10, "Shevat":11,
+  "Adar I":12, "Adar II":13, "Adar":12,
+  "Nisan":1, "Iyar":2, "Sivan":3, "Tamuz":4, "Av":5, "Elul":6,
+};
+let hebrewFormatter = null;
+function getHebrewFormatter() {
+  if (!hebrewFormatter) {
+    hebrewFormatter = new Intl.DateTimeFormat("en-u-ca-hebrew", {
+      day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+    });
   }
-
-  const jd = jdFromGreg(year, month, day);
-  const daysSinceTishri = jd - TISHRI1_5787;
-
-  if (daysSinceTishri < 0 || daysSinceTishri >= 385) {
-    // ימים לפני תשרי תשפ"ז = אלול תשפ"ו
-    // 1 תשרי תשפ"ו = 22 ספטמבר 2025 = JD 2460941
-    const TISHRI1_5786 = 2460941;
-    const d2 = jd - TISHRI1_5786;
-    // אורכי חודשים לתשפ"ו (שנה כסדרה)
-    const ml5786 = {7:30,8:29,9:30,10:29,11:30,12:29,1:30,2:29,3:30,4:29,5:30,6:29};
-    const order5786 = [7,8,9,10,11,12,1,2,3,4,5,6];
-    let rem = d2;
-    for (const mn of order5786) {
-      const ml = ml5786[mn];
-      if (rem < ml) return { y: 5786, m: mn, d: rem+1, mn: HEB_MONTHS[mn] || "" };
-      rem -= ml;
-    }
-    return { y: 5786, m: 6, d: 29, mn: "אלול" };
-  }
-
-  // Walk through 5787 months starting from Tishri (month 7)
-  const ORDER = [7,8,9,10,11,12,13,1,2,3,4,5,6];
-  let rem = daysSinceTishri;
-  for (const mn of ORDER) {
-    const len = MONTH_LENGTHS_5787[mn];
-    if (rem < len) return { y: 5787, m: mn, d: rem+1, mn: HEB_MONTHS[mn] };
-    rem -= len;
-  }
-  return { y: 5787, m: 6, d: rem+1, mn: "אלול" };
+  return hebrewFormatter;
 }
-
+const jewishDateCache = new Map();
+function jewishDate(year, month, day) {
+  const key = `${year}-${month}-${day}`;
+  const cached = jewishDateCache.get(key);
+  if (cached) return cached;
+  const parts = getHebrewFormatter().formatToParts(new Date(Date.UTC(year, month - 1, day)));
+  let d = 0, m = 0, y = 0, monthName = "";
+  for (const p of parts) {
+    if (p.type === "day") d = parseInt(p.value, 10);
+    else if (p.type === "year") y = parseInt(p.value, 10);
+    else if (p.type === "month") monthName = p.value;
+  }
+  m = HEB_MONTH_INDEX[monthName] || 0;
+  const result = { y, m, d, mn: HEB_MONTHS[m] || monthName };
+  jewishDateCache.set(key, result);
+  return result;
+}
 
 const MONTHS_ORDER = [
   "09-2026","10-2026","11-2026","12-2026",
