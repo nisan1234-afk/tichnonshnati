@@ -1080,7 +1080,7 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
       </div>
 
       {/* Day headers */}
-      <div style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)", background:"#f8f9fa"}}>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))", background:"#f8f9fa"}}>
         {headerDays.map((d,i) => (
           <div key={i} style={{
             textAlign:"center", padding:"5px 2px", fontSize:11, fontWeight:700,
@@ -1093,7 +1093,7 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
 
       {/* Weeks */}
       {weeks.map((week, wi) => (
-        <div key={wi} style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)"}}>
+        <div key={wi} style={{display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))"}}>
           {week.map((day, di) => {
             if (!day) return (
               <div key={di} style={{
@@ -1112,7 +1112,7 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
               <div key={di}
                 onClick={() => onDayClick(formatDateKey(y,m,day))}
                 style={{
-                  minHeight:70, padding:"3px 4px", cursor:"pointer",
+                  minHeight:70, minWidth:0, overflow:"hidden", padding:"3px 4px", cursor:"pointer",
                   borderLeft: di>0 ? "1px solid #f0f0f0":"none",
                   borderBottom:"1px solid #f0f0f0",
                   background: isSat ? "#fdf5f5" : isFri ? "#fffdf0" : "#fff",
@@ -1141,7 +1141,7 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
                     <div key={ev.id}
                       onClick={e=>{e.stopPropagation(); onEventClick(ev);}}
                       style={{
-                        display:"flex", alignItems:"flex-start", gap:3,
+                        display:"flex", alignItems:"flex-start", gap:3, minWidth:0,
                         background: isMuted ? "#f5f5f5" : (CATEGORIES[ev.cat]?.bg || "#f0f0f0"),
                         borderRadius:4, padding:"1px 4px",
                         cursor:"pointer", border:`1px solid ${isMuted ? "#ccc" : (CATEGORIES[ev.cat]?.color+"22")}`,
@@ -1153,6 +1153,7 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
                         flexShrink:0, marginTop:3,
                       }}/>
                       <span style={{fontSize:9, lineHeight:1.4, color: isMuted ? "#aaa" : "#222", fontWeight:500,
+                        minWidth:0, overflowWrap:"anywhere",
                         textDecoration: isPendingDelete ? "line-through" : "none"}}>
                         {isPendingApproval ? "🆕 " : ""}{ev.title}
                       </span>
