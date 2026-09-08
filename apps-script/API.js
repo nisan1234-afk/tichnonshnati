@@ -1662,3 +1662,240 @@ function setupVisualCalendarSyncTrigger() {
     .create();
   Logger.log("טריגר יומי הוגדר — הלוח הצבעוני יתעדכן אוטומטית כל בוקר ב-6:00");
 }
+
+// ── דוח יומי: אירועים שקיימים באפליקציה ולא מופיעים בלוח של נורית ─────────────
+// הלוח של נורית ("תכנון תשפז") הוא גיליון ויזואלי שנערך ידנית ולא מסונכרן לאפליקציה.
+// הפונקציות כאן קוראות אותו (קריאה בלבד, לא כותבות אליו לעולם), משוות תאריך-מול-תאריך
+// לאירועים הפעילים בלשונית "אירועים", ומדווחות מה חסר אצלה: גם למייל וגם ללשונית במערכת.
+const NURIT_SHEET_ID = "1PO9wH9rAXHxhAin_arbkjU7_SuuwYBiJgDRYchtgL84";
+const NURIT_TAB = "גיליון1";
+const MISSING_IN_NURIT_TAB = "חסר אצל נורית";
+const SCHOOL_YEAR_START = 2026; // ספטמבר–דצמבר = 2026, ינואר–אוגוסט = 2027
+const GREG_MONTH_BY_NAME = {
+  "ספטמבר":9, "אוקטובר":10, "נובמבר":11, "דצמבר":12, "ינואר":1, "פברואר":2,
+  "מרץ":3, "אפריל":4, "מאי":5, "יוני":6, "יולי":7, "אוגוסט":8,
+};
+const CATEGORY_LABELS = {
+  chag:"חג / צום", social:"פעילות חברתית", trip:"טיול / סיור", parents:"הורים / תעודות",
+  staff:"צוות / מנהלים", sports:"ספורט", vol:"התנדבות", bg:"בגרויות", ruach:"רוח הגולן", gen:"כללי",
+};
+const HEB_WEEKDAYS = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","שבת"];
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+// קורא את הגיליון של נורית ומחזיר מפה: "YYYY-MM-DD" -> רשימת הטקסטים שרשומים באותו יום
+function readNuritEventsByDate() {
+  const ss = SpreadsheetApp.openById(NURIT_SHEET_ID);
+  const sheet = ss.getSheetByName(NURIT_TAB) || ss.getSheets()[0];
+  const range = sheet.getDataRange();
+  const values = range.getDisplayValues();
+
+  // תאים ממוזגים: הערך יושב רק בתא השמאלי-עליון. מעתיקים אותו לכל התאים שהמיזוג מכסה,
+  // כדי שאירוע שנמשך כמה ימים (למשל "סוכות") ייספר בכל אחד מהימים.
+  range.getMergedRanges().forEach(r => {
+    const top = r.getRow() - 1, left = r.getColumn() - 1;
+    const v = values[top] && values[top][left];
+    if (!v) return;
+    for (let i = top; i < top + r.getNumRows(); i++) {
+      for (let j = left; j < left + r.getNumColumns(); j++) {
+        if (values[i] && j < values[i].length) values[i][j] = v;
+      }
+    }
+  });
+
+  return parseNuritGrid(values);
+}
+
+// מפענח את מבנה הרשת: שורת חודש (תווית בעמודה הראשונה + מספרי ימים לרוחב),
+// ואחריה שורות שבהן כל תא הוא אירוע ביום שבאותה עמודה. עובד על מערך דו-ממדי בלבד,
+// כדי שאפשר לבדוק אותו גם בלי גישה לגיליון.
+function parseNuritGrid(values) {
+  const byDate = {};
+  let month = null, year = null, colToDay = null;
+
+  values.forEach(row => {
+    const label = String(row[0] || "").trim();
+    const monthName = Object.keys(GREG_MONTH_BY_NAME).find(n => label.indexOf(n) === 0);
+    if (monthName) {
+      const m = GREG_MONTH_BY_NAME[monthName];
+      if (m !== month) {
+        month = m;
+        year = m >= 9 ? SCHOOL_YEAR_START : SCHOOL_YEAR_START + 1;
+        colToDay = null;
+      }
+    }
+    if (!month) return;
+
+    // שורת מספרי ימים: תאים כמו "1 י\"ט", "2 כ'" ... לפחות 20 כאלה בשורה
+    const dayCells = row.map(c => {
+      const mm = String(c || "").trim().match(/^(\d{1,2})(\s|$)/);
+      const d = mm ? parseInt(mm[1], 10) : 0;
+      return d >= 1 && d <= 31 ? d : 0;
+    });
+    if (dayCells.filter(d => d > 0).length >= 20) { colToDay = dayCells; return; }
+    if (!colToDay) return;
+
+    row.forEach((cell, j) => {
+      if (j === 0) return; // עמודת התווית
+      const d = colToDay[j];
+      if (!d) return;
+      const txt = String(cell || "").trim();
+      if (!txt) return;
+      const key = year + "-" + pad2(month) + "-" + pad2(d);
+      if (!byDate[key]) byDate[key] = [];
+      txt.split(/\n+/).map(t => t.trim()).filter(Boolean).forEach(t => {
+        if (byDate[key].indexOf(t) === -1) byDate[key].push(t);
+      });
+    });
+  });
+
+  return byDate;
+}
+
+// נרמול טקסט להשוואה: בלי גרשיים, פיסוק ורווחים כפולים
+function normalizeTitle(s) {
+  return String(s || "")
+    .replace(/[״"'׳`]/g, "")
+    .replace(/[^\u0590-\u05FFa-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+function titleTokens(s) {
+  return normalizeTitle(s).split(" ").filter(t => t.length >= 2);
+}
+// שתי מילים נחשבות זהות גם אם אחת מהן עם אות שימוש בתחילתה ("במחשבת" = "מחשבת", "לחרמון" = "חרמון")
+function tokensEqual(x, y) {
+  if (x === y) return true;
+  const strip = t => t.length >= 3 && /^[בלהומשכ]/.test(t) ? t.slice(1) : null;
+  return strip(x) === y || strip(y) === x;
+}
+
+// אילו כיתות מוזכרות בטקסט (ט, י, יא, יב, וגם ט1/י2 וכו')
+function classTokens(s) {
+  return normalizeTitle(s).split(" ").filter(t => /^(ט|י|יא|יב)[12]?$/.test(t));
+}
+
+// האם כותרת מהאפליקציה "מופיעה" בטקסט של נורית: זהות, הכלה, או לפחות 60% מילים משותפות.
+// אם שני הצדדים מציינים כיתות ואין כיתה משותפת — זה לא אותו אירוע (מפגש ט' ≠ מפגש י').
+function titlesMatch(appTitle, nuritText) {
+  const a = normalizeTitle(appTitle), b = normalizeTitle(nuritText);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ca = classTokens(appTitle), cb = classTokens(nuritText);
+  if (ca.length && cb.length && !ca.some(c => cb.indexOf(c) !== -1)) return false;
+  if (b.indexOf(a) !== -1 || a.indexOf(b) !== -1) return true;
+  const ta = titleTokens(appTitle), tb = titleTokens(nuritText);
+  if (!ta.length || !tb.length) return false;
+  const common = ta.filter(t => tb.some(u => tokensEqual(t, u))).length;
+  return common >= 1 && common / Math.min(ta.length, tb.length) >= 0.6;
+}
+
+// מחזיר את האירועים הפעילים באפליקציה שאין להם התאמה אצל נורית באותו תאריך
+function findEventsMissingInNurit() {
+  const nurit = readNuritEventsByDate();
+  const skipStatuses = ["ממתין למחיקה", "ממתין לאישור", "בוטל", "נדחה"];
+  const events = getEvents({}).events.filter(ev => skipStatuses.indexOf(String(ev["סטטוס"] || "")) === -1);
+
+  const missing = [];
+  events.forEach(ev => {
+    const date = String(ev["תאריך"] || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const texts = nurit[date] || [];
+    const found = texts.some(t => titlesMatch(ev["כותרת"], t));
+    if (found) return;
+    missing.push({
+      id: ev["id"],
+      date: date,
+      title: ev["כותרת"] || "",
+      cat: ev["קטגוריה"] || "",
+      leader: ev["מוביל"] || "",
+      nuritThatDay: texts.join(" | "),
+    });
+  });
+
+  missing.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  return missing;
+}
+
+function weekdayLetter(dateStr) {
+  const p = dateStr.split("-").map(Number);
+  return HEB_WEEKDAYS[new Date(p[0], p[1] - 1, p[2]).getDay()] || "";
+}
+
+// כותב את הרשימה ללשונית "חסר אצל נורית" בגיליון המערכת (נדרסת בכל הרצה)
+function writeMissingInNuritTab(missing) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(MISSING_IN_NURIT_TAB);
+  if (!sheet) { sheet = ss.insertSheet(MISSING_IN_NURIT_TAB); sheet.setRightToLeft(true); }
+  sheet.clear();
+
+  const stamp = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm");
+  const headers = ["תאריך", "יום", "id", "כותרת", "קטגוריה", "מוביל", "מה רשום אצל נורית באותו יום"];
+  const rows = [["עודכן: " + stamp + " — " + missing.length + " אירועים שקיימים באפליקציה ולא בלוח של נורית", "", "", "", "", "", ""], headers];
+  missing.forEach(m => rows.push([
+    m.date, weekdayLetter(m.date), m.id, m.title, CATEGORY_LABELS[m.cat] || m.cat, m.leader, m.nuritThatDay || "(ריק)",
+  ]));
+  sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+  sheet.getRange(2, 1, 1, headers.length).setBackground("#1a1a2e").setFontColor("#fff").setFontWeight("bold");
+  sheet.setColumnWidth(4, 260);
+  sheet.setColumnWidth(7, 360);
+}
+
+// נמעני הדוח: מפתח "missing_report_emails" בלשונית הגדרות (מופרד בפסיקים),
+// ואם אין כזה — בעל הסקריפט.
+function getMissingReportRecipients() {
+  const settings = getSettings();
+  const raw = settings.success && settings.settings["missing_report_emails"];
+  const list = String(raw || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (list.length) return list;
+  const owner = Session.getEffectiveUser().getEmail();
+  return owner ? [owner] : [];
+}
+
+// הדוח היומי: מעדכן את הלשונית ושולח מייל. מיועד לרוץ כל בוקר (ראה setupMissingInNuritTrigger),
+// ואפשר גם להריץ ידנית מהעורך בכל רגע.
+function sendMissingInNuritDigest() {
+  const missing = findEventsMissingInNurit();
+  writeMissingInNuritTab(missing);
+
+  const today = Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy");
+  const upcoming = missing.filter(m => m.date >= formatDateObj(new Date()));
+  const past = missing.length - upcoming.length;
+
+  const lines = [];
+  lines.push("שלום,");
+  lines.push("");
+  if (!missing.length) {
+    lines.push("כל האירועים באפליקציה מופיעים גם בלוח של נורית. אין פערים היום.");
+  } else {
+    lines.push("אירועים שקיימים באפליקציה ולא מופיעים בלוח של נורית (" + upcoming.length + " עתידיים" + (past ? ", ועוד " + past + " שכבר עברו" : "") + "):");
+    lines.push("");
+    upcoming.forEach(m => {
+      lines.push("• " + m.date + " (" + weekdayLetter(m.date) + ") — " + m.title +
+        (m.leader ? " | מוביל: " + m.leader : "") +
+        " | אצל נורית באותו יום: " + (m.nuritThatDay || "ריק"));
+    });
+  }
+  lines.push("");
+  lines.push("הרשימה המלאה, כולל אירועים שעברו, בלשונית \"" + MISSING_IN_NURIT_TAB + "\" בגיליון המערכת.");
+  lines.push("הלוח של נורית: https://docs.google.com/spreadsheets/d/" + NURIT_SHEET_ID + "/edit");
+
+  const subject = "חסר בלוח של נורית — " + today + " (" + upcoming.length + " עתידיים)";
+  getMissingReportRecipients().forEach(to => {
+    try { MailApp.sendEmail(to, subject, lines.join("\n")); }
+    catch (e) { logAction("שגיאה בדוח חסר אצל נורית", to + " — " + e.toString()); }
+  });
+  logAction("דוח חסר אצל נורית", missing.length + " אירועים (" + upcoming.length + " עתידיים)");
+  return missing;
+}
+
+// מריצים פעם אחת ידנית מהעורך — מפעיל את הדוח היומי כל בוקר ב-7:00
+function setupMissingInNuritTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  if (triggers.some(t => t.getHandlerFunction() === "sendMissingInNuritDigest")) {
+    Logger.log("הטריגר לדוח 'חסר אצל נורית' כבר מוגדר, לא נוצר כפול");
+    return;
+  }
+  ScriptApp.newTrigger("sendMissingInNuritDigest").timeBased().everyDays(1).atHour(7).create();
+  Logger.log("טריגר יומי הוגדר — דוח 'חסר אצל נורית' יישלח כל בוקר ב-7:00");
+}
