@@ -177,6 +177,14 @@ function decodeJwtExp(token) {
   } catch (e) { return null; }
 }
 
+// האם אישור ההתחברות השמור עדיין בתוקף (עם שוליים של דקה)? אם אי אפשר לפענח — מניחים שכן,
+// והשרת יכריע. משמש כדי לא לשלוח לשרת אישור שכבר פג (מה שנרשם ביומן כ"aud לא תואם").
+function isCredentialFresh(credential) {
+  const expMs = decodeJwtExp(credential);
+  if (!expMs) return true;
+  return expMs - Date.now() > 60 * 1000;
+}
+
 // מבקש מגוגל אישור התחברות חדש בשקט (בלי להראות למשתמש כלום), כל עוד הוא עדיין
 // מחובר לחשבון הגוגל שלו בדפדפן. משמש לרענון אוטומטי לפני שהאישור הישן פג בפועל.
 function silentGoogleCredential() {
@@ -2477,22 +2485,40 @@ function SiteLoginGate() {
     let cancelled = false;
     let timer = null;
 
+    let ticking = false;
     const tick = async () => {
-      if (cancelled) return;
+      if (cancelled || ticking) return;
+      ticking = true;
       const fresh = await silentGoogleCredential();
+      ticking = false;
       if (cancelled) return;
       if (fresh) {
         updateCredential(fresh); // session ישתנה, וה-effect ירוץ מחדש עם תפוגת האישור החדש
+      } else if (!isCredentialFresh(session.credential)) {
+        // האישור כבר פג וגוגל לא חידשה בשקט — מנתקים ומבקשים להתחבר שוב,
+        // במקום להמשיך לשלוח לשרת אישור פג שנכשל בכל פעולה.
+        setSession(null);
+        try { localStorage.removeItem("rakazSession"); } catch (e) { /* ignore */ }
+        setError("ההתחברות פגה, נא להתחבר שוב");
+        setStatus("error");
       } else {
         timer = setTimeout(tick, 5 * 60 * 1000); // גוגל לא ענתה בשקט — ננסה שוב בעוד 5 דק'
       }
     };
 
+    // אם האישור כבר פג (למשל האתר נפתח שוב אחרי כמה שעות) — מרעננים מיד, לא בעוד דקה
     const expMs = decodeJwtExp(session.credential);
-    const delay = expMs ? Math.max(60000, expMs - Date.now() - 5 * 60 * 1000) : 45 * 60 * 1000;
-    timer = setTimeout(tick, delay);
+    const msUntilRefresh = expMs ? expMs - Date.now() - 5 * 60 * 1000 : 45 * 60 * 1000;
+    if (msUntilRefresh <= 0) tick();
+    else timer = setTimeout(tick, msUntilRefresh);
 
-    return () => { cancelled = true; clearTimeout(timer); };
+    // חזרה ללשונית אחרי זמן — בודקים שוב, כי טיימרים בלשונית רדומה לא תמיד רצים בזמן
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !isCredentialFresh(session.credential)) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => { cancelled = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [session, updateCredential]);
 
   useEffect(() => {
@@ -2541,9 +2567,10 @@ function SiteLoginGate() {
     try { localStorage.removeItem("rakazSession"); } catch (e) {}
   };
 
-  if (session) {
+  if (session && isCredentialFresh(session.credential)) {
     return <MainApp session={session} onLogout={handleLogout} />;
   }
+  const renewing = !!session; // יש session אבל האישור פג — הרענון השקט רץ ברקע
 
   return (
     <div style={{
@@ -2559,7 +2586,11 @@ function SiteLoginGate() {
         <div style={{fontSize:13, color:"#666", marginBottom:22}}>
           התחבר עם חשבון הגוגל שלך כדי להיכנס למערכת ריכוז חברתי
         </div>
-        <div ref={btnRef} style={{display:"flex", justifyContent:"center", minHeight:44}} />
+        {renewing ? (
+          <div style={{color:"#888", fontSize:13, minHeight:44}}>מחדש התחברות…</div>
+        ) : (
+          <div ref={btnRef} style={{display:"flex", justifyContent:"center", minHeight:44}} />
+        )}
         {status === "checking" && (
           <div style={{marginTop:16, color:"#888", fontSize:13}}>מתחבר...</div>
         )}

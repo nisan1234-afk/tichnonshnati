@@ -195,11 +195,20 @@ function doPost(e) {
       return jsonResponse({ success: false, error: "⛔ " + auth.error });
     }
 
-    let result;
+    // נעילה: שתי שמירות בו-זמנית (למשל שני מורים באותה שנייה) לא יקבלו אותו id
+    // ולא ידרסו זו את זו. ממתינים עד 30 שניות לתור.
+    const lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(30000);
+    } catch (lockErr) {
+      return jsonResponse({ success: false, error: "השרת עסוק כרגע, נסה שוב בעוד רגע" });
+    }
 
+    let result;
+    try {
     switch (action) {
       case "addEvent":       result = addEvent(body.data, auth.person["שם מלא"], auth.person["הרשאה"]); break;
-      case "updateEvent":    result = updateEvent(body.id, body.data, auth.person["שם מלא"]);        break;
+      case "updateEvent":    result = updateEvent(body.id, body.data, auth.person["שם מלא"], auth.person["הרשאה"]); break;
       case "requestDelete":  result = requestDelete(body.id, auth.person["שם מלא"], body.reason); break;
       case "approveDelete":  result = approveDelete(body.id, auth.person["שם מלא"]);                 break;
       case "rejectDelete":   result = rejectDelete(body.id, body.reason, auth.person["שם מלא"]);     break;
@@ -208,6 +217,9 @@ function doPost(e) {
       case "addTeamMember":  result = addTeamMember(body.data, auth.person["שם מלא"]);               break;
       case "updateTeamMember": result = updateTeamMember(body.originalName, body.data, auth.person["שם מלא"]); break;
       case "getTeamFull":    result = getTeamFull();                    break;
+    }
+    } finally {
+      lock.releaseLock();
     }
     return jsonResponse(result);
   } catch (err) {
@@ -390,7 +402,17 @@ function addEvent(data, actorName, actorPermission) {
 }
 
 // ── עדכון אירוע ───────────────────────────────────────────────
-function updateEvent(id, data, actorName) {
+// שדות שמותר לשנות דרך updateEvent. שדות מערכת (id, סטטוס, נמחק, סנכרון יומן,
+// סטטוס ביצוע, טוקנים) לא ניתנים לשינוי מהטופס — כדי שמורה לא יוכל, למשל,
+// להפוך אירוע "ממתין לאישור" ל"פעיל" בלי אישור הרכז.
+const UPDATABLE_EVENT_FIELDS = [
+  "תאריך","כותרת","קטגוריה","קהל יעד","מוביל","הערה פנימית","הערה להורים",
+  "שעת התחלה","שעת סיום","מספר משתתפים","הסעות","פרטי הסעה","אוכל","פרטי אוכל",
+  "בקשות מיוחדות","אישור טיול",
+];
+const ADMIN_ONLY_EVENT_FIELDS = ["סטטוס", "קישור דרייב"];
+
+function updateEvent(id, data, actorName, actorPermission) {
   const sheet  = getSheet();
   const rowNum = findRowById(id);
 
@@ -401,9 +423,10 @@ function updateEvent(id, data, actorName) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const rowData = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
 
-  // עדכן כל שדה שנשלח (לפי שם עמודה, לא לפי מיקום קבוע)
+  // עדכן רק שדות מותרים שנשלחו (לפי שם עמודה, לא לפי מיקום קבוע)
+  const allowed = UPDATABLE_EVENT_FIELDS.concat(actorPermission === "אדמין" ? ADMIN_ONLY_EVENT_FIELDS : []);
   headers.forEach((h, i) => {
-    if (data[h] !== undefined) rowData[i] = data[h];
+    if (data[h] !== undefined && allowed.indexOf(h) !== -1) rowData[i] = data[h];
   });
 
   const updCol = headers.indexOf("תאריך עדכון");
@@ -1520,8 +1543,12 @@ const HEB_NUMS_GS = ["","א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ז׳","ח׳",
 
 // גרסה ל-Apps Script של אותו חישוב תאריך עברי שמשמש באתר (App.jsx: jewishDate)
 function jewishDateGS(year, month, day) {
-  const JD_ANCHOR = 2461301; // 1 תשרי תשפ"ז = 12 בספטמבר 2026
-  const MONTH_LENGTHS_5787 = [0,30,29,29,30,29,30,30,29,30,29,30,29,29];
+  // 1 תשרי תשפ"ז = 12 בספטמבר 2026. (העוגן הקודם, 2461301, היה 17 בספטמבר — סטייה של 5 ימים.)
+  const JD_ANCHOR = 2461296;
+  // אורכי חודשים לתשפ"ז — שנה מעוברת שלמה, 385 ימים. אינדקס לפי מספר חודש:
+  // 1 ניסן 30, 2 אייר 29, 3 סיון 30, 4 תמוז 29, 5 אב 30, 6 אלול 29,
+  // 7 תשרי 30, 8 חשון 30, 9 כסלו 30, 10 טבת 29, 11 שבט 30, 12 אדר א׳ 30, 13 אדר ב׳ 29
+  const MONTH_LENGTHS_5787 = [0,30,29,30,29,30,29,30,30,30,29,30,30,29];
 
   function jdFromGreg(y, m, d) {
     if (m <= 2) { y -= 1; m += 12; }
@@ -1534,7 +1561,7 @@ function jewishDateGS(year, month, day) {
   const daysSinceTishri = jd - JD_ANCHOR;
 
   if (daysSinceTishri < 0 || daysSinceTishri >= 385) {
-    const TISHRI1_5786 = 2460941;
+    const TISHRI1_5786 = 2460942; // 1 תשרי תשפ"ו = 23 בספטמבר 2025
     const d2 = jd - TISHRI1_5786;
     const ml5786 = {7:30,8:29,9:30,10:29,11:30,12:29,1:30,2:29,3:30,4:29,5:30,6:29};
     const order5786 = [7,8,9,10,11,12,1,2,3,4,5,6];
