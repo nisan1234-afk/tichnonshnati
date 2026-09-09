@@ -1644,6 +1644,11 @@ function syncEventsToVisualCalendar() {
   });
 
   Logger.log("הלוח הצבעוני עודכן: " + VISUAL_MONTHS.length + " חודשים, " + events.length + " אירועים");
+
+  // הדוח היומי "חסר אצל נורית" רץ מיד אחרי רענון הלוח הצבעוני, באותו טריגר בוקר.
+  // כך לא צריך להגדיר טריגר נוסף. נשלח לכל היותר פעם ביום.
+  try { sendMissingInNuritDigest(); }
+  catch (e) { logAction("שגיאה בדוח חסר אצל נורית", e.toString()); }
 }
 
 // הרצה חד-פעמית ידנית מהעורך — מפעילה רענון אוטומטי של הלוח הצבעוני כל בוקר.
@@ -1854,7 +1859,13 @@ function getMissingReportRecipients() {
 
 // הדוח היומי: מעדכן את הלשונית ושולח מייל. מיועד לרוץ כל בוקר (ראה setupMissingInNuritTrigger),
 // ואפשר גם להריץ ידנית מהעורך בכל רגע.
-function sendMissingInNuritDigest() {
+function sendMissingInNuritDigest(force) {
+  const props = PropertiesService.getScriptProperties();
+  const todayKey = formatDateObj(new Date());
+  if (!force && props.getProperty("MISSING_REPORT_LAST_SENT") === todayKey) {
+    Logger.log("דוח 'חסר אצל נורית' כבר נשלח היום — מדלגים");
+    return null;
+  }
   const missing = findEventsMissingInNurit();
   writeMissingInNuritTab(missing);
 
@@ -1885,11 +1896,18 @@ function sendMissingInNuritDigest() {
     try { MailApp.sendEmail(to, subject, lines.join("\n")); }
     catch (e) { logAction("שגיאה בדוח חסר אצל נורית", to + " — " + e.toString()); }
   });
+  props.setProperty("MISSING_REPORT_LAST_SENT", todayKey);
   logAction("דוח חסר אצל נורית", missing.length + " אירועים (" + upcoming.length + " עתידיים)");
   return missing;
 }
 
-// מריצים פעם אחת ידנית מהעורך — מפעיל את הדוח היומי כל בוקר ב-7:00
+// הרצה ידנית מהעורך — שולח את הדוח עכשיו, גם אם כבר נשלח היום
+function sendMissingInNuritDigestNow() {
+  return sendMissingInNuritDigest(true);
+}
+
+// לא חובה: הדוח כבר רץ כל בוקר בתוך syncEventsToVisualCalendar (טריגר 6:00).
+// הפונקציה הזו נועדה רק למקרה שהטריגר ההוא בוטל ורוצים דוח יומי עצמאי ב-7:00.
 function setupMissingInNuritTrigger() {
   const triggers = ScriptApp.getProjectTriggers();
   if (triggers.some(t => t.getHandlerFunction() === "sendMissingInNuritDigest")) {
