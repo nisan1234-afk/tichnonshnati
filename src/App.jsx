@@ -185,29 +185,57 @@ function isCredentialFresh(credential) {
   return expMs - Date.now() > 60 * 1000;
 }
 
-// מבקש מגוגל אישור התחברות חדש בשקט (בלי להראות למשתמש כלום), כל עוד הוא עדיין
-// מחובר לחשבון הגוגל שלו בדפדפן. משמש לרענון אוטומטי לפני שהאישור הישן פג בפועל.
+// ── Google Identity: אתחול אחד בלבד, והמטפל באישור מתחלף לפי הצורך ──────────────
+// google.accounts.id.initialize דורס את ה-callback בכל קריאה. אם הרענון השקט היה
+// מאתחל אחרון, אישור שמגיע מכפתור ההתחברות היה "נבלע". לכן מאתחלים פעם אחת,
+// ומנתבים כל אישור למטפל הנכון: חד-פעמי (רענון שקט) או קבוע (כפתור / אישור מאוחר).
+let gisReady = false;
+let gisNextHandler = null;
+let gisDefaultHandler = null;
+function ensureGis() {
+  if (!window.google || !window.google.accounts || !window.google.accounts.id) return false;
+  if (!gisReady) {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      auto_select: true,
+      cancel_on_tap_outside: false,
+      callback: (response) => {
+        const cred = response && response.credential ? response.credential : null;
+        const h = gisNextHandler || gisDefaultHandler;
+        gisNextHandler = null;
+        if (h) h(cred);
+      },
+    });
+    gisReady = true;
+  }
+  return true;
+}
+function setGisDefaultHandler(fn) { gisDefaultHandler = fn; }
+
+// מבקש מגוגל אישור התחברות חדש בשקט, כל עוד המשתמש עדיין מחובר לחשבון הגוגל שלו בדפדפן.
+// לא חוסם את המסך: אם גוגל לא עונה, מחזיר null והאתר ממשיך לעבוד לצפייה.
 function silentGoogleCredential() {
   return new Promise((resolve) => {
-    if (!window.google || !window.google.accounts) { resolve(null); return; }
+    if (!ensureGis()) { resolve(null); return; }
     let settled = false;
-    const finish = (cred) => { if (!settled) { settled = true; resolve(cred); } };
+    const handler = (cred) => finish(cred);
+    const finish = (cred) => {
+      if (settled) return;
+      settled = true;
+      if (gisNextHandler === handler) gisNextHandler = null; // אישור שיגיע מאוחר יותר ילך למטפל הקבוע
+      resolve(cred);
+    };
+    gisNextHandler = handler;
     try {
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => finish(response && response.credential ? response.credential : null),
-        auto_select: true,
-        cancel_on_tap_outside: false,
-      });
-      window.google.accounts.id.prompt((notification) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment() || notification.isDismissedMoment()) {
-          finish(null);
-        }
+      window.google.accounts.id.prompt((n) => {
+        try {
+          if (n.isNotDisplayed() || n.isSkippedMoment() || n.isDismissedMoment()) finish(null);
+        } catch (e) { /* בממשקים חדשים של גוגל הבדיקות האלה לא תמיד קיימות */ }
       });
     } catch (e) {
       finish(null);
     }
-    setTimeout(() => finish(null), 4000); // לא נתקע לנצח אם גוגל לא עונה
+    setTimeout(() => finish(null), 15000); // בטלפון החלון של גוגל לוקח זמן — נותנים לו 15 שניות
   });
 }
 
@@ -1692,7 +1720,7 @@ function ParentsView() {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
-function MainApp({ session, onLogout }) {
+function MainApp({ session, onLogout, credentialFresh = true }) {
   const { credential, name, permission, token } = session;
   const isAdmin = permission === "אדמין";
   const [myTasks, setMyTasks] = useState(session.tasks || []);
@@ -1763,9 +1791,9 @@ function MainApp({ session, onLogout }) {
       setLoading(false);
     });
     loadTeam().then(setTeam);
-    if (isAdmin) loadTeamFull(credential).then(setTeamFull);
+    if (isAdmin && credentialFresh) loadTeamFull(credential).then(setTeamFull);
     refreshAlerts();
-  }, [refreshAlerts, isAdmin, credential]);
+  }, [refreshAlerts, isAdmin, credential, credentialFresh]);
 
   // פתיחת אירוע לעריכה — אירוע שעדיין באמצע שמירה (מזהה זמני) לא נפתח,
   // כי כל עדכון/מחיקה שלו ייכשל בשרת עם "אירוע לא נמצא: temp-…".
@@ -1775,6 +1803,7 @@ function MainApp({ session, onLogout }) {
   }, []);
 
   const handleSave = useCallback((form) => {
+    if (!credentialFresh) { setToast({ type: "info", message: LOGIN_EXPIRED_MSG }); return; } // הטופס נשאר פתוח
     const isEdit = modal?.type === "edit" && modal.event;
     if (isEdit && isTempId(modal.event.id)) {
       setModal(null);
@@ -1858,11 +1887,12 @@ function MainApp({ session, onLogout }) {
         });
       }
     })();
-  }, [modal, credential, isAdmin]);
+  }, [modal, credential, isAdmin, credentialFresh]);
 
   // בפתיחת האפליקציה, משלימים ברקע שמירות שנשארו תלויות מפעם קודמת —
   // למשל אם האפליקציה נסגרה ממש בזמן שהשמירה עוד הייתה בדרך לשרת.
   useEffect(() => {
+    if (!credentialFresh) return; // נחכה לאישור תקף — ה-effect ירוץ שוב כשהוא יתחדש
     const pending = readPendingSaves();
     if (!pending.length) return;
     (async () => {
@@ -1893,11 +1923,12 @@ function MainApp({ session, onLogout }) {
         setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 2500);
       }
     })();
-  }, [credential]);
+  }, [credential, credentialFresh]);
 
   // מפעיל פעולת רקע (שליחה לשרת + רענון), עם התראה שנשארת בזמן ההמתנה
   // ומאפשרת "פתח שוב" (שחוזר על אותה פעולה, בלי לבקש שוב פרטים) אם היא נכשלת.
   const runBackgroundAction = useCallback((savingMsg, successMsg, action) => {
+    if (!credentialFresh) { setToast({ type: "info", message: LOGIN_EXPIRED_MSG }); return; }
     setToast({ type: "saving", message: savingMsg });
     (async () => {
       try {
@@ -1918,7 +1949,7 @@ function MainApp({ session, onLogout }) {
         });
       }
     })();
-  }, [refreshAlerts]);
+  }, [refreshAlerts, credentialFresh]);
 
   const handleDelete = useCallback((id) => {
     if (isTempId(id)) { setModal(null); setToast({ type: "info", message: STILL_SAVING_MSG }); return; }
@@ -1949,6 +1980,7 @@ function MainApp({ session, onLogout }) {
   }, [runBackgroundAction, credential, alerts]);
 
   const handleSaveTeamMember = useCallback(async (form, originalName) => {
+    if (!credentialFresh) { setToast({ type: "info", message: LOGIN_EXPIRED_MSG }); return; }
     if (originalName) {
       await apiUpdateTeamMember(originalName, form, credential);
     } else {
@@ -1957,7 +1989,7 @@ function MainApp({ session, onLogout }) {
     const data = await loadTeamFull(credential);
     setTeamFull(data);
     setModal({type:"team"});
-  }, [credential]);
+  }, [credential, credentialFresh]);
 
   const handleUpdateMyTask = useCallback(async (id, status, notes) => {
     await apiReportTaskStatus(token, id, status, notes);
@@ -2458,6 +2490,8 @@ function MainApp({ session, onLogout }) {
 
 // ── שער כניסה לאתר הראשי — התחברות גוגל, מזוהה מול לשונית "צוות" ─────────────
 // פתוח לכל איש צוות ("מורה"/"אדמין"); רק אחרי כניסה מוצג האתר עצמו.
+const LOGIN_EXPIRED_MSG = "ההתחברות פגה. התחבר מחדש בפס הצהוב למעלה, ואז שמור שוב";
+
 function SiteLoginGate() {
   const [session, setSession] = useState(() => {
     try {
@@ -2467,52 +2501,84 @@ function SiteLoginGate() {
   });
   const [status, setStatus] = useState("ready"); // ready | checking | error
   const [error, setError] = useState("");
-  const btnRef = useRef(null);
+  const [, setClock] = useState(0);
+  const btnRef = useRef(null);        // כפתור גוגל במסך הכניסה
+  const reauthBtnRef = useRef(null);  // כפתור גוגל בפס "התחבר מחדש"
+  const lastSilentRef = useRef(0);
+
+  // האם האישור השמור פג? מחושב בכל רינדור, ורינדור מאולץ כל חצי דקה כדי שהפס יופיע בזמן
+  const stale = !!session && !isCredentialFresh(session.credential);
+  useEffect(() => {
+    const id = setInterval(() => setClock(n => n + 1), 30 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const updateCredential = useCallback((newCredential) => {
     setSession(prev => {
       if (!prev) return prev;
       const updated = { ...prev, credential: newCredential };
-      try { localStorage.setItem("rakazSession", JSON.stringify(updated)); } catch (e) {}
+      try { localStorage.setItem("rakazSession", JSON.stringify(updated)); } catch (e) { /* ignore */ }
       return updated;
     });
   }, []);
 
-  // רענון שקט של אישור ההתחברות לפני שהוא פג בפועל (בד"כ אחרי כשעה) — כדי שהאתר
-  // לא "ייתקע מחובר" כשגוגל כבר ניתקה אותו ברקע, בלי שתצטרך להתנתק ולהתחבר מחדש.
+  // אישור שהגיע מכפתור התחברות (מסך הכניסה או הפס הצהוב): מאמתים מול השרת ובונים session
+  const loginWithCredential = useCallback(async (credential) => {
+    if (!credential) return;
+    setStatus("checking");
+    setError("");
+    try {
+      const data = await apiVerifyLogin(credential);
+      if (data.success) {
+        const newSession = {
+          credential, name: data.name, permission: data.permission,
+          token: data.token, tasks: data.tasks || [],
+        };
+        setSession(newSession);
+        try { localStorage.setItem("rakazSession", JSON.stringify(newSession)); } catch (e) { /* ignore */ }
+        setStatus("ready");
+      } else {
+        setError(data.error || "ההתחברות נכשלה");
+        setStatus("error");
+      }
+    } catch (e) {
+      setError("שגיאה בתקשורת עם השרת");
+      setStatus("error");
+    }
+  }, []);
+
+  // המטפל הקבוע באישורים מגוגל: כפתור התחברות, או רענון שקט שענה באיחור
+  useEffect(() => {
+    setGisDefaultHandler((cred) => { if (cred) loginWithCredential(cred); });
+  }, [loginWithCredential]);
+
+  // רענון שקט ברקע, קצת לפני שהאישור פג (וגם בחזרה ללשונית אם כבר פג).
+  // לעולם לא מנתק: אם גוגל לא עונה, האתר נשאר פתוח לצפייה והפס הצהוב מציע להתחבר מחדש.
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
     let timer = null;
 
-    let ticking = false;
     const tick = async () => {
-      if (cancelled || ticking) return;
-      ticking = true;
-      const fresh = await silentGoogleCredential();
-      ticking = false;
       if (cancelled) return;
-      if (fresh) {
-        updateCredential(fresh); // session ישתנה, וה-effect ירוץ מחדש עם תפוגת האישור החדש
-      } else if (!isCredentialFresh(session.credential)) {
-        // האישור כבר פג וגוגל לא חידשה בשקט — מנתקים ומבקשים להתחבר שוב,
-        // במקום להמשיך לשלוח לשרת אישור פג שנכשל בכל פעולה.
-        setSession(null);
-        try { localStorage.removeItem("rakazSession"); } catch (e) { /* ignore */ }
-        setError("ההתחברות פגה, נא להתחבר שוב");
-        setStatus("error");
-      } else {
-        timer = setTimeout(tick, 5 * 60 * 1000); // גוגל לא ענתה בשקט — ננסה שוב בעוד 5 דק'
+      if (Date.now() - lastSilentRef.current < 60 * 1000) return; // לכל היותר פעם בדקה
+      lastSilentRef.current = Date.now();
+      const fresh = await silentGoogleCredential();
+      if (cancelled) return;
+      if (!fresh) {
+        // עוד לא פג — ננסה שוב בעוד 3 דקות. אם כבר פג — הפס הצהוב כבר מוצג, אין מה לעשות ברקע
+        if (isCredentialFresh(session.credential)) timer = setTimeout(tick, 3 * 60 * 1000);
+        return;
       }
+      const oldExp = decodeJwtExp(session.credential) || 0;
+      const newExp = decodeJwtExp(fresh) || 0;
+      if (newExp > oldExp) updateCredential(fresh); // אחרת זה אותו אישור ישן — לא נכנסים ללולאה
     };
 
-    // אם האישור כבר פג (למשל האתר נפתח שוב אחרי כמה שעות) — מרעננים מיד, לא בעוד דקה
     const expMs = decodeJwtExp(session.credential);
     const msUntilRefresh = expMs ? expMs - Date.now() - 5 * 60 * 1000 : 45 * 60 * 1000;
-    if (msUntilRefresh <= 0) tick();
-    else timer = setTimeout(tick, msUntilRefresh);
+    timer = setTimeout(tick, Math.max(0, msUntilRefresh));
 
-    // חזרה ללשונית אחרי זמן — בודקים שוב, כי טיימרים בלשונית רדומה לא תמיד רצים בזמן
     const onVisible = () => {
       if (document.visibilityState === "visible" && !isCredentialFresh(session.credential)) tick();
     };
@@ -2521,56 +2587,48 @@ function SiteLoginGate() {
     return () => { cancelled = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [session, updateCredential]);
 
+  // מציירים את כפתור גוגל במקום הנכון: מסך הכניסה (בלי session) או הפס הצהוב (session שפג)
   useEffect(() => {
-    if (session) return;
     let cancelled = false;
-
-    const handleCredential = async (response) => {
-      setStatus("checking");
-      setError("");
-      try {
-        const data = await apiVerifyLogin(response.credential);
-        if (cancelled) return;
-        if (data.success) {
-          const newSession = {
-            credential: response.credential, name: data.name, permission: data.permission,
-            token: data.token, tasks: data.tasks || [],
-          };
-          setSession(newSession);
-          try { localStorage.setItem("rakazSession", JSON.stringify(newSession)); } catch (e) {}
-        } else {
-          setError(data.error || "ההתחברות נכשלה");
-          setStatus("error");
-        }
-      } catch (e) {
-        if (!cancelled) { setError("שגיאה בתקשורת עם השרת"); setStatus("error"); }
-      }
-    };
-
+    const target = session ? (stale ? reauthBtnRef.current : null) : btnRef.current;
+    if (!target) return undefined;
     const tryInit = () => {
       if (cancelled) return;
-      if (!window.google || !window.google.accounts) { setTimeout(tryInit, 300); return; }
-      window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleCredential });
-      if (btnRef.current) {
-        window.google.accounts.id.renderButton(btnRef.current, {
-          theme: "outline", size: "large", text: "signin_with", locale: "iw", shape: "pill",
-        });
-      }
+      if (!ensureGis()) { setTimeout(tryInit, 300); return; }
+      target.innerHTML = "";
+      window.google.accounts.id.renderButton(target, {
+        theme: "outline", size: session ? "medium" : "large", text: "signin_with", locale: "iw", shape: "pill",
+      });
     };
     tryInit();
-
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session, stale]);
 
   const handleLogout = () => {
     setSession(null);
-    try { localStorage.removeItem("rakazSession"); } catch (e) {}
+    try { localStorage.removeItem("rakazSession"); } catch (e) { /* ignore */ }
   };
 
-  if (session && isCredentialFresh(session.credential)) {
-    return <MainApp session={session} onLogout={handleLogout} />;
+  if (session) {
+    return (
+      <>
+        {stale && (
+          <div style={{
+            position:"sticky", top:0, zIndex:3000, background:"#fff3cd", borderBottom:"1px solid #f0c36d",
+            color:"#7a5b00", padding:"6px 12px", display:"flex", alignItems:"center", justifyContent:"center",
+            gap:10, flexWrap:"wrap", fontSize:13, fontWeight:600, direction:"rtl",
+            fontFamily:'"Heebo", "Noto Sans Hebrew", Arial, sans-serif',
+          }}>
+            <span>⏰ ההתחברות פגה. אפשר להמשיך לצפות, אבל כדי לשמור שינויים צריך להתחבר מחדש:</span>
+            <div ref={reauthBtnRef} style={{minHeight:32}} />
+            {status === "checking" && <span style={{color:"#888"}}>מתחבר…</span>}
+            {status === "error" && <span style={{color:"#c0392b"}}>{error}</span>}
+          </div>
+        )}
+        <MainApp session={session} onLogout={handleLogout} credentialFresh={!stale} />
+      </>
+    );
   }
-  const renewing = !!session; // יש session אבל האישור פג — הרענון השקט רץ ברקע
 
   return (
     <div style={{
@@ -2586,11 +2644,7 @@ function SiteLoginGate() {
         <div style={{fontSize:13, color:"#666", marginBottom:22}}>
           התחבר עם חשבון הגוגל שלך כדי להיכנס למערכת ריכוז חברתי
         </div>
-        {renewing ? (
-          <div style={{color:"#888", fontSize:13, minHeight:44}}>מחדש התחברות…</div>
-        ) : (
-          <div ref={btnRef} style={{display:"flex", justifyContent:"center", minHeight:44}} />
-        )}
+        <div ref={btnRef} style={{display:"flex", justifyContent:"center", minHeight:44}} />
         {status === "checking" && (
           <div style={{marginTop:16, color:"#888", fontSize:13}}>מתחבר...</div>
         )}
