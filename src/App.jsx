@@ -412,6 +412,14 @@ function clearPendingSave(eventId) {
   } catch (e) {}
 }
 
+async function apiRefreshVisualCalendar(credential) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "refreshVisualCalendar", credential }),
+  });
+  return await res.json();
+}
+
 async function apiApproveEvent(id, credential) {
   const res = await fetch(API_URL, {
     method: "POST",
@@ -1927,6 +1935,25 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
 
   // מפעיל פעולת רקע (שליחה לשרת + רענון), עם התראה שנשארת בזמן ההמתנה
   // ומאפשרת "פתח שוב" (שחוזר על אותה פעולה, בלי לבקש שוב פרטים) אם היא נכשלת.
+  // כפתור "עדכן לוח לנורית": בונה מחדש את הלוח הצבעוני מהנתונים העדכניים, ומציג קישור אליו
+  const [refreshingVisual, setRefreshingVisual] = useState(false);
+  const handleRefreshVisual = useCallback(async () => {
+    if (!credentialFresh) { setToast({ type: "info", message: LOGIN_EXPIRED_MSG }); return; }
+    if (refreshingVisual) return;
+    setRefreshingVisual(true);
+    setToast({ type: "saving", message: "מעדכן את הלוח לנורית… (כ-15 שניות)" });
+    try {
+      const r = await apiRefreshVisualCalendar(credential);
+      if (!r || r.success === false) throw new Error((r && r.error) || "העדכון נכשל");
+      setToast({ type: "success", message: `✓ הלוח עודכן, ${r.count} אירועים`, link: r.url, linkLabel: "פתח את הלוח" });
+      setTimeout(() => setToast(t => (t && t.type === "success" ? null : t)), 8000);
+    } catch (err) {
+      setToast({ type: "error", message: (err && err.message) || "העדכון נכשל", retry: () => { setToast(null); handleRefreshVisual(); } });
+    } finally {
+      setRefreshingVisual(false);
+    }
+  }, [credential, credentialFresh, refreshingVisual]);
+
   const runBackgroundAction = useCallback((savingMsg, successMsg, action) => {
     if (!credentialFresh) { setToast({ type: "info", message: LOGIN_EXPIRED_MSG }); return; }
     setToast({ type: "saving", message: savingMsg });
@@ -2087,6 +2114,20 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
                     display:"flex", alignItems:"center", gap:6,
                   }}>
                   👥 צוות
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={handleRefreshVisual}
+                  disabled={refreshingVisual}
+                  title="בונה מחדש את הלוח הצבעוני (הגיליון המשותף) מהאירועים העדכניים באתר"
+                  style={{
+                    background:"rgba(255,255,255,0.15)", border:"1.5px solid rgba(255,255,255,0.3)",
+                    color:"#fff", padding:"8px 18px", borderRadius:20, cursor: refreshingVisual ? "wait" : "pointer",
+                    fontWeight:700, fontSize:13, fontFamily:"inherit", opacity: refreshingVisual ? 0.6 : 1,
+                    display:"flex", alignItems:"center", gap:6,
+                  }}>
+                  🔄 {refreshingVisual ? "מעדכן…" : "עדכן לוח לנורית"}
                 </button>
               )}
               {isAdmin && (
@@ -2470,6 +2511,12 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
           <span>
             {toast.type==="saving" ? "⏳" : toast.type==="success" ? "✓" : toast.type==="info" ? "ℹ️" : "⚠️"} {toast.message}
           </span>
+          {toast.link && (
+            <a href={toast.link} target="_blank" rel="noopener noreferrer" style={{
+              padding:"5px 14px", borderRadius:16, background:"#27ae60", color:"#fff",
+              fontWeight:700, fontSize:12, textDecoration:"none", whiteSpace:"nowrap",
+            }}>{toast.linkLabel || "פתח"}</a>
+          )}
           {toast.retry && (
             <button onClick={toast.retry} style={{
               padding:"5px 14px", borderRadius:16, border:"none",

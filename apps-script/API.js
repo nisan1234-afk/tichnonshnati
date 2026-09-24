@@ -137,7 +137,7 @@ function verifyLogin(credential) {
 // פעולות כתיבה שפתוחות לכל איש צוות מחובר (לא "צפייה")
 const TEAM_ACTIONS = ["addEvent", "updateEvent", "requestDelete"];
 // פעולות כתיבה שמיועדות לאדמין בלבד
-const ADMIN_ACTIONS = ["approveDelete", "rejectDelete", "approveEvent", "rejectEvent", "addTeamMember", "updateTeamMember", "getTeamFull"];
+const ADMIN_ACTIONS = ["approveDelete", "rejectDelete", "approveEvent", "rejectEvent", "addTeamMember", "updateTeamMember", "getTeamFull", "refreshVisualCalendar"];
 
 // ── נקודת כניסה ראשית ─────────────────────────────────────────
 function doGet(e) {
@@ -217,6 +217,7 @@ function doPost(e) {
       case "addTeamMember":  result = addTeamMember(body.data, auth.person["שם מלא"]);               break;
       case "updateTeamMember": result = updateTeamMember(body.originalName, body.data, auth.person["שם מלא"]); break;
       case "getTeamFull":    result = getTeamFull();                    break;
+      case "refreshVisualCalendar": result = refreshVisualCalendar(auth.person["שם מלא"]); break;
     }
     } finally {
       lock.releaseLock();
@@ -1586,7 +1587,20 @@ function jewishDateGS(year, month, day) {
 
 // מרעננת את הגיליון הצבעוני החיצוני לפי הנתונים העדכניים באתר. אפשר להריץ ידנית
 // מהעורך בכל רגע, וגם דרך setupVisualCalendarSyncTrigger להרצה אוטומטית יומית.
-function syncEventsToVisualCalendar() {
+// רענון ידני מהאתר (כפתור "עדכן לוח לנורית", אדמין בלבד). כותב לגיליון הצבעוני
+// שבבעלות הרכז בלבד, לעולם לא לגיליון של נורית. מחזיר כמה אירועים נכתבו וקישור.
+function refreshVisualCalendar(actorName) {
+  const count = syncEventsToVisualCalendar({ skipDigest: true });
+  logAction("רענון לוח צבעוני", count + " אירועים — ע״י " + (actorName || "?"));
+  return {
+    success: true,
+    count: count,
+    url: "https://docs.google.com/spreadsheets/d/" + VISUAL_CALENDAR_SHEET_ID + "/edit",
+    updatedAt: Utilities.formatDate(new Date(), "Asia/Jerusalem", "dd/MM/yyyy HH:mm"),
+  };
+}
+
+function syncEventsToVisualCalendar(opts) {
   const eventsResult = getEvents({});
   const events = eventsResult.events;
 
@@ -1646,9 +1660,12 @@ function syncEventsToVisualCalendar() {
   Logger.log("הלוח הצבעוני עודכן: " + VISUAL_MONTHS.length + " חודשים, " + events.length + " אירועים");
 
   // הדוח היומי "חסר אצל נורית" רץ מיד אחרי רענון הלוח הצבעוני, באותו טריגר בוקר.
-  // כך לא צריך להגדיר טריגר נוסף. נשלח לכל היותר פעם ביום.
-  try { sendMissingInNuritDigest(); }
-  catch (e) { logAction("שגיאה בדוח חסר אצל נורית", e.toString()); }
+  // כך לא צריך להגדיר טריגר נוסף. נשלח לכל היותר פעם ביום. ברענון ידני מהאתר מדלגים.
+  if (!(opts && opts.skipDigest)) {
+    try { sendMissingInNuritDigest(); }
+    catch (e) { logAction("שגיאה בדוח חסר אצל נורית", e.toString()); }
+  }
+  return events.length;
 }
 
 // הרצה חד-פעמית ידנית מהעורך — מפעילה רענון אוטומטי של הלוח הצבעוני כל בוקר.
