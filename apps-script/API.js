@@ -629,7 +629,7 @@ function getParentsView() {
   const eventsResult = getEvents({});
 
   const events = eventsResult.events
-    .filter(ev => ev["קטגוריה"] !== "staff") // אירועי צוות/מנהלים פנימיים לא מוצגים להורים
+    .filter(isParentsEvent) // אירועי צוות / מנהלים / מחנכים לא מוצגים להורים
     .filter(ev => ev["סטטוס"] !== "ממתין לאישור" && ev["סטטוס"] !== "ממתין למחיקה") // רק אירועים חיים ומאושרים
     .map(ev => ({
       id: ev["id"],
@@ -907,9 +907,22 @@ function updateAlertStatus(eventId, status) {
 // ── סנכרון אירוע ליומני Google Calendar ────────────────────────
 
 // לפי אילו שדות באירוע — לאילו יומנים הוא צריך להגיע
+// קהלי יעד פנימיים: אירוע שכל קהל היעד שלו פנימי לא מגיע להורים (לא ליומן ולא לתצוגה).
+// אם קהל היעד ריק, או מכיל גם כיתה / "כלל" / כל ערך אחר — האירוע כן מגיע להורים.
+const INTERNAL_TARGETS = ["צוות", "מנהלים", "מחנכים"];
+function parseTargets(raw) {
+  return String(raw || "").split(/[,،;\n]+/).map(t => t.trim()).filter(Boolean);
+}
+function isParentsEvent(eventData) {
+  if (eventData["קטגוריה"] === "staff") return false;
+  const targets = parseTargets(eventData["קהל יעד"]);
+  if (!targets.length) return true;
+  return targets.some(t => INTERNAL_TARGETS.indexOf(t) === -1);
+}
+
 function getRelevantCalendars(eventData) {
   const cals = ["main", "staff"]; // תמיד
-  if (eventData["קטגוריה"] !== "staff") cals.push("parents");
+  if (isParentsEvent(eventData)) cals.push("parents");
   const transport = eventData["הסעות"];
   if (transport && transport !== "לא נדרש") cals.push("transport");
   const food = eventData["אוכל"];
@@ -1398,6 +1411,45 @@ function setupWeeklyDigestTrigger() {
   Logger.log("טריגר שבועי הוגדר בהצלחה — ירוץ כל יום ראשון בבוקר");
 }
 
+// ── יישור יומנים לפי הכלל הנוכחי ─────────────────────────────────
+// עובר על כל האירועים הפעילים ומתקן רק את אלה שרשומים ביומן שהם כבר לא שייכים אליו
+// (או חסרים ביומן שהם כן שייכים אליו). אירוע שכבר תקין לא נוגעים בו.
+// רץ אוטומטית בתוך העדכון היומי, ואפשר גם להריץ ידנית מהעורך.
+function realignCalendars() {
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const syncCol = headers.indexOf("סנכרון יומן");
+  const deletedCol = headers.indexOf("נמחק");
+  const statusCol = headers.indexOf("סטטוס");
+  if (syncCol === -1) return 0;
+
+  let fixed = 0;
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (deletedCol !== -1 && String(row[deletedCol]).toLowerCase() === "true") continue;
+    const st = statusCol !== -1 ? String(row[statusCol] || "") : "";
+    if (st === "ממתין לאישור" || st === "בוטל" || st === "נדחה") continue;
+
+    const fullData = {};
+    headers.forEach((h, idx) => { fullData[h] = row[idx]; });
+
+    let current = {};
+    try { current = JSON.parse(row[syncCol] || "{}"); } catch (e) { current = {}; }
+    const wanted = getRelevantCalendars(fullData);
+    const have = Object.keys(current);
+    const same = wanted.length === have.length && wanted.every(k => have.indexOf(k) !== -1);
+    if (same) continue;
+
+    const syncJson = syncEventToCalendars(fullData);
+    sheet.getRange(i + 1, syncCol + 1).setValue(syncJson);
+    fixed++;
+  }
+  if (fixed) logAction("יישור יומנים", fixed + " אירועים עודכנו לפי קהל היעד");
+  Logger.log("יושרו " + fixed + " אירועים");
+  return fixed;
+}
+
 // ── סנכרון היסטורי — מריצים פעם אחת ידנית מהעורך ───────────────
 // דוחף לכל היומנים את כל האירועים הקיימים שעדיין לא סונכרנו.
 // אפשר להריץ כמה פעמים ברציפות בלי בעיה — אירוע שכבר סונכרן פשוט ידולג.
@@ -1658,6 +1710,12 @@ function syncEventsToVisualCalendar(opts) {
   });
 
   Logger.log("הלוח הצבעוני עודכן: " + VISUAL_MONTHS.length + " חודשים, " + events.length + " אירועים");
+
+  // יישור יומנים לפי קהל היעד — כל בוקר, לפני הדוח. ברענון ידני מהאתר מדלגים.
+  if (!(opts && opts.skipDigest)) {
+    try { realignCalendars(); }
+    catch (e) { logAction("שגיאה ביישור יומנים", e.toString()); }
+  }
 
   // הדוח היומי "חסר אצל נורית" רץ מיד אחרי רענון הלוח הצבעוני, באותו טריגר בוקר.
   // כך לא צריך להגדיר טריגר נוסף. נשלח לכל היותר פעם ביום. ברענון ידני מהאתר מדלגים.
