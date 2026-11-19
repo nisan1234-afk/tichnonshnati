@@ -1,18 +1,16 @@
 {
+  "id": "/tichnonshnati/",
   "name": "תוכנית שנתית תשפ\"ז - ישיבת אלוני הבשן",
   "short_name": "תוכנית שנתית",
-  "start_url": ".",
+  "start_url": "/tichnonshnati/",
+  "scope": "/tichnonshnati/",
   "display": "standalone",
   "background_color": "#f4f6f9",
   "theme_color": "#1a1a2e",
   "dir": "rtl",
   "lang": "he",
   "icons": [
-    {
-      "src": "favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
