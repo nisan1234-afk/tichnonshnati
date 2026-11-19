@@ -1087,6 +1087,16 @@ function TeamMemberForm({ initial, onSave, onCancel }) {
 
 // ─── CALENDAR MONTH VIEW ─────────────────────────────────────────────────────
 
+// היום (שעון ישראל) כ-YYYY-MM-DD
+function todayKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date());
+}
+// גלילה ליום של היום בלוח (או לחודש הנוכחי) — כשפותחים את האתר
+function scrollToToday() {
+  const el = document.getElementById("today-cell") || document.getElementById("month-" + todayKey().slice(5,7) + "-" + todayKey().slice(0,4));
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
   const { y, m } = parseMonthKey(mk);
   const totalDays = getDaysInMonth(y, m);
@@ -1116,8 +1126,9 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
 
   const headerDays = ["א׳","ב׳","ג׳","ד׳","ה׳","ו׳","ש׳"];
 
+  const tk = todayKey();
   return (
-    <div style={{
+    <div id={"month-" + mk} style={{
       borderRadius:12, overflow:"hidden",
       border:"1px solid #e5e7eb", marginBottom:20,
       boxShadow:"0 2px 8px rgba(0,0,0,0.06)",
@@ -1167,10 +1178,12 @@ function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
             );
             const isSat = di === 6;
             const isFri = di === 5;
+            const isToday = formatDateKey(y,m,day) === tk;
             return (
-              <div key={di}
+              <div key={di} id={isToday ? "today-cell" : undefined}
                 onClick={() => onDayClick(formatDateKey(y,m,day))}
                 style={{
+                  boxShadow: isToday ? "inset 0 0 0 2px #2f7d6d" : "none",
                   minHeight:70, minWidth:0, overflow:"hidden", padding:"3px 4px", cursor:"pointer",
                   borderLeft: di>0 ? "1px solid #f0f0f0":"none",
                   borderBottom:"1px solid #f0f0f0",
@@ -1500,6 +1513,12 @@ function ParentsView() {
   const [searchQ, setSearchQ] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [showStaff, setShowStaff] = useState(false);
+  const scrolledToToday = useRef(false);
+  useEffect(() => {
+    if (loading || scrolledToToday.current) return;
+    scrolledToToday.current = true;
+    setTimeout(scrollToToday, 300);
+  }, [loading]);
   const noop = useCallback(() => {}, []);
 
   useEffect(() => {
@@ -1751,6 +1770,7 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
   const [searchQ, setSearchQ] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [modal, setModal] = useState(null); // null | {type:"new"|"edit"|"day", ...}
+  const scrolledToToday = useRef(false);
   const [toast, setToast] = useState(null); // null | {type:"saving"|"success"|"error", message, retry?}
   const [newEventDate, setNewEventDate] = useState("");
   const [team, setTeam] = useState([]);
@@ -1812,6 +1832,13 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
     if (isAdmin && credentialFresh) loadTeamFull(credential).then(setTeamFull);
     refreshAlerts();
   }, [refreshAlerts, isAdmin, credential, credentialFresh]);
+
+  // בפתיחת האתר — לגלול ליום של היום
+  useEffect(() => {
+    if (!loaded || scrolledToToday.current) return;
+    scrolledToToday.current = true;
+    setTimeout(scrollToToday, 300);
+  }, [loaded]);
 
   // פתיחת אירוע לעריכה — אירוע שעדיין באמצע שמירה (מזהה זמני) לא נפתח,
   // כי כל עדכון/מחיקה שלו ייכשל בשרת עם "אירוע לא נמצא: temp-…".
