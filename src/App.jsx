@@ -164,7 +164,8 @@ function generateUniqueId() {
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 
 // ── API Configuration ──────────────────────────────────────────
-const API_URL = "https://script.google.com/macros/s/AKfycbzfMzOr5Ks2WCcdSLrtlTSfUREq8ZrHWRnyOlO2k9SMTq6ASnVpz0slzOkZR7fxTfBT/exec";
+// השרת החדש (המנוע מעל הלוח של נורית). השרת הישן נשאר לגיבוי בלבד.
+const API_URL = "https://script.google.com/macros/s/AKfycbzuj_zTHxMZTAiHcrkDj5anE_aXJzknY5ipkjgVM9QpE9IO0vMOtZQA5vnk7zRHa0foXA/exec";
 const SITE_URL = "https://nisan1234-afk.github.io/tichnonshnati/";
 const GOOGLE_CLIENT_ID = "1019791950162-hv5jhr1omsjsstmbnenf9mdr6kdila54.apps.googleusercontent.com";
 
@@ -266,6 +267,7 @@ async function loadEvents() {
         specialRequests: ev["בקשות מיוחדות"] || "",
         tripApproval: ev["אישור טיול"] || "",
         driveLink: ev["קישור דרייב"] || "",
+        source: ev["מקור"] || "",
       }));
     }
   } catch(e) {
@@ -661,6 +663,9 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
 
   const isPendingDelete = initial?.status === "ממתין למחיקה";
   const isPendingApproval = initial?.status === "ממתין לאישור";
+  // אירוע שמגיע מהלוח של נורית: התאריך, הכותרת והקטגוריה נקבעים שם בלבד
+  const fromNurit = initial?.source === "נורית";
+  const lockedStyle = fromNurit ? { background:"#f3f5f4", color:"#667" } : {};
 
   return (
     <div style={{direction:"rtl", fontFamily:"inherit", maxHeight:"80vh", overflowY:"auto"}}>
@@ -680,14 +685,19 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
 
       {/* ── בסיסי ── */}
       <Section title="פרטי האירוע" color="#1a1a2e">
+        {fromNurit && (
+          <div style={{fontSize:12, background:"#eef6f3", color:"#2f7d6d", padding:"6px 10px", borderRadius:8, marginBottom:8}}>
+            📋 מהלוח של נורית — התאריך, הכותרת והקטגוריה מתעדכנים משם. אפשר לערוך שעות וכל השאר.
+          </div>
+        )}
         <Field label="שם האירוע" required>
-          <input value={form.title} onChange={e=>set("title",e.target.value)}
-            style={inputStyle} placeholder="שם האירוע..." />
+          <input value={form.title} onChange={e=>set("title",e.target.value)} disabled={fromNurit}
+            style={{...inputStyle, ...lockedStyle}} placeholder="שם האירוע..." />
         </Field>
         <Field label="תאריך" required>
-          <input type="date" value={form.date} onChange={e=>set("date",e.target.value)}
+          <input type="date" value={form.date} onChange={e=>set("date",e.target.value)} disabled={fromNurit}
             min="2026-09-01" max="2027-06-30"
-            style={{...inputStyle, direction:"ltr"}} />
+            style={{...inputStyle, direction:"ltr", ...lockedStyle}} />
         </Field>
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
           <Field label="שעת התחלה">
@@ -700,7 +710,7 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
           </Field>
         </div>
         <Field label="קטגוריה">
-          <select value={form.cat} onChange={e=>set("cat",e.target.value)} style={selectStyle}>
+          <select value={form.cat} onChange={e=>set("cat",e.target.value)} disabled={fromNurit} style={{...selectStyle, ...lockedStyle}}>
             {Object.entries(CATEGORIES).map(([k,v]) => (
               <option key={k} value={k}>{v.label}</option>
             ))}
@@ -805,7 +815,7 @@ function EventForm({ initial, onSave, onCancel, onDelete, staffList }) {
       <div style={{display:"flex", gap:8, justifyContent:"flex-end",
         marginTop:8, flexWrap:"wrap", position:"sticky", bottom:0,
         background:"#fff", paddingTop:8, borderTop:"1px solid #eee"}}>
-        {initial && onDelete && (
+        {initial && onDelete && !fromNurit && (
           <button onClick={()=>onDelete(initial.id)}
             style={{padding:"8px 16px", borderRadius:8, border:"none",
               background:"#fdecea", color:"#c0392b", fontWeight:600, cursor:"pointer", fontSize:13}}>
