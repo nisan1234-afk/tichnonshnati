@@ -1092,9 +1092,10 @@ function todayKey() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date());
 }
 // גלילה ליום של היום בלוח (או לחודש הנוכחי) — כשפותחים את האתר
-function scrollToToday() {
+function scrollToToday(tries = 0) {
   const el = document.getElementById("today-cell") || document.getElementById("month-" + todayKey().slice(5,7) + "-" + todayKey().slice(0,4));
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (el) { el.scrollIntoView({ behavior: "auto", block: "center" }); return; }
+  if (tries < 30) setTimeout(() => scrollToToday(tries + 1), 200);  // מחכה שהלוח יסיים להיטען
 }
 
 function CalendarMonth({ mk, events, onDayClick, onEventClick, selectedCats }) {
@@ -1517,7 +1518,7 @@ function ParentsView() {
   useEffect(() => {
     if (loading || scrolledToToday.current) return;
     scrolledToToday.current = true;
-    setTimeout(scrollToToday, 300);
+    setTimeout(() => scrollToToday(), 300);
   }, [loading]);
   const noop = useCallback(() => {}, []);
 
@@ -1837,7 +1838,7 @@ function MainApp({ session, onLogout, credentialFresh = true }) {
   useEffect(() => {
     if (!loaded || scrolledToToday.current) return;
     scrolledToToday.current = true;
-    setTimeout(scrollToToday, 300);
+    setTimeout(() => scrollToToday(), 300);
   }, [loaded]);
 
   // פתיחת אירוע לעריכה — אירוע שעדיין באמצע שמירה (מזהה זמני) לא נפתח,
